@@ -1,17 +1,17 @@
-import { pgTable, serial, text, timestamp, integer, boolean, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, integer, boolean, jsonb, varchar, uuid } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
 // Users table
 export const users = pgTable("users", {
-  id: serial("id").primaryKey(),
-  email: text("email").notNull().unique(),
-  name: text("name").notNull(),
-  password: text("password").notNull(),
+  id: uuid("id").primaryKey(),
+  fullName: text("full_name"),
+  phone: varchar("phone", { length: 256 }),
+  email: varchar("email", { length: 256 }).notNull().unique(),
+  role: varchar("role", { length: 50 }).default("user").notNull(),
   skillLevel: text("skill_level"),
   experience: text("experience"),
   learningObjectives: text("learning_objectives"),
   preferredLearningStyle: text("preferred_learning_style"),
-  role: text("role").default("user").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -19,7 +19,7 @@ export const users = pgTable("users", {
 // Blueprints table
 export const blueprints = pgTable("blueprints", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull().references(() => users.id),
+  userId: uuid("user_id").notNull().references(() => users.id),
   title: text("title").notNull(),
   description: text("description"),
   content: jsonb("content").notNull(),
@@ -35,7 +35,7 @@ export const courses = pgTable("courses", {
   title: text("title").notNull(),
   description: text("description"),
   content: jsonb("content"),
-  authorId: integer("author_id").notNull().references(() => users.id),
+  authorId: uuid("author_id").notNull().references(() => users.id),
   isPublished: boolean("is_published").default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -44,7 +44,7 @@ export const courses = pgTable("courses", {
 // Enrollments table
 export const enrollments = pgTable("enrollments", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull().references(() => users.id),
+  userId: uuid("user_id").notNull().references(() => users.id),
   courseId: integer("course_id").notNull().references(() => courses.id),
   progress: integer("progress").default(0),
   completed: boolean("completed").default(false),

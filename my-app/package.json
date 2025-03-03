@@ -7,9 +7,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "db:generate": "drizzle-kit generate:pg",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push:pg",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "db:run-migrations": "tsx src/lib/db/migrate.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.13.0",
@@ -27,12 +29,13 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cookies-next": "^5.1.0",
-    "drizzle-orm": "^0.29.4",
+    "dotenv": "^16.4.7",
+    "drizzle-orm": "^0.29.5",
     "lucide-react": "^0.477.0",
     "next": "15.2.1-canary.3",
     "next-themes": "^0.4.4",
     "openai": "^4.31.0",
-    "postgres": "^3.4.3",
+    "postgres": "^3.4.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tailwind-merge": "^3.0.2",
@@ -44,10 +47,12 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "drizzle-kit": "^0.20.14",
+    "drizzle-kit": "^0.20.18",
     "eslint": "^9",
     "eslint-config-next": "15.2.1-canary.3",
     "tailwindcss": "^4",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.19.3",
     "typescript": "^5"
   }
 }

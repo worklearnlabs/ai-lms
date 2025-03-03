@@ -1,0 +1,20 @@
+{
+  "version": "5",
+  "dialect": "pg",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1741020725629,
+      "tag": "0000_dazzling_doctor_faustus",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1741022631033,
+      "tag": "0001_slim_psylocke",
+      "breakpoints": true
+    }
+  ]
+}

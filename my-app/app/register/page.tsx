@@ -1,11 +1,11 @@
 "use client";
 
-import { GalleryVerticalEnd } from "lucide-react"
-import { LoginForm } from "@/components/login-form"
-import { ThemeToggle } from "@/components/theme-toggle"
-import Link from "next/link"
+import { RegisterForm } from "@/components/register-form";
+import { GalleryVerticalEnd } from "lucide-react";
+import { ThemeToggle } from "@/components/theme-toggle";
+import Link from "next/link";
 
-export default function LoginPage() {
+export default function RegisterPage() {
   return (
     <div className="bg-background flex min-h-svh flex-col items-center justify-center gap-6 p-6 md:p-10">
       <div className="absolute top-4 right-4">
@@ -18,8 +18,8 @@ export default function LoginPage() {
           </div>
           Adaptive Learning System
         </Link>
-        <LoginForm />
+        <RegisterForm />
       </div>
     </div>
-  )
-}
+  );
+} 

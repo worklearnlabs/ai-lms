@@ -2,7 +2,6 @@
 
 import * as React from "react"
 import {
-  AudioWaveform,
   BookOpen,
   Bot,
   Command,
@@ -10,8 +9,9 @@ import {
   GalleryVerticalEnd,
   PieChart,
   Settings2,
-  PartyPopper,
-  LayoutDashboard,
+  SquareTerminal,
+  Waypoints,
+  Route,
 } from "lucide-react"
 
 import { NavMain } from "@/components/nav-main"
@@ -25,7 +25,7 @@ import {
   SidebarHeader,
   SidebarRail,
 } from "@/components/ui/sidebar"
-import { useAuth } from "@/lib/auth-context"
+import { useAuth } from "@/src/lib/auth/auth-provider"
 
 // This is sample data.
 const data = {
@@ -33,29 +33,24 @@ const data = {
     {
       name: "Acme Inc",
       logo: GalleryVerticalEnd,
-      plan: "Enterprise",
+      plan: "Business",
     },
     {
-      name: "Acme Corp.",
-      logo: AudioWaveform,
-      plan: "Startup",
-    },
-    {
-      name: "Evil Corp.",
+      name: "Personal Account",
       logo: Command,
-      plan: "Free",
+      plan: "Personal",
     },
   ],
   navMain: [
     {
       title: "Dashboard",
       url: "#",
-      icon: LayoutDashboard,
+      icon: SquareTerminal,
       isActive: true,
       items: [],
     },
     {
-      title: "AI Courses",
+      title: "Guides",
       url: "#",
       icon: Bot,
       items: [
@@ -64,7 +59,7 @@ const data = {
           url: "#",
         },
         {
-          title: "Workflows",
+          title: "Workflows & Automation",
           url: "#",
         },
         {
@@ -74,27 +69,42 @@ const data = {
       ],
     },
     {
-      title: "Community",
+      title: "Courses",
       url: "#",
       icon: BookOpen,
       items: [
         {
-          title: "Explore",
+          title: "No-Code",
           url: "#",
         },
         {
-          title: "Events",
+          title: "AI Developer",
           url: "#",
         },
         {
-          title: "News",
+          title: "Data Scientist",
+          url: "#",
+        },
+        ],
+    },
+    {
+      title: "Community Hub",
+      url: "#",
+      icon: Waypoints,
+      items: [
+        {
+          title: "No-Code",
           url: "#",
         },
         {
-          title: "Marketplace",
+          title: "AI Developer",
           url: "#",
         },
-      ],
+        {
+          title: "Data Scientist",
+          url: "#",
+        },
+        ],
     },
     {
       title: "Settings",
@@ -132,23 +142,27 @@ const data = {
       icon: PieChart,
     },
     {
-      name: "Customer Success",
+      name: "Operations",
       url: "#",
-      icon: PartyPopper,
+      icon: Route,
     },
   ],
 }
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
-  const { user } = useAuth()
+  const { user } = useAuth();
   
-  // Create a user object for the NavUser component
-  const userData = {
-    name: user?.name || "User",
-    email: user?.email || "user@example.com",
-    avatar: "/avatars/shadcn.jpg", // Default avatar
-  }
-  
+  // Create a user object for NavUser component
+  const userForNav = user ? {
+    name: user.name,
+    email: user.email,
+    avatar: "/avatars/shadcn.jpg", // Default avatar path
+  } : {
+    name: "Guest",
+    email: "guest@example.com",
+    avatar: "/avatars/shadcn.jpg",
+  };
+
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader>
@@ -159,7 +173,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <NavProjects projects={data.projects} />
       </SidebarContent>
       <SidebarFooter>
-        <NavUser user={userData} />
+        <NavUser user={userForNav} />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>

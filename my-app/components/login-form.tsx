@@ -12,9 +12,24 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useState } from "react"
-import { useAuth } from "@/lib/auth-context"
+import { useAuth } from "../src/lib/auth/auth-provider"
 import { useRouter } from "next/navigation"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import React from "react"
+
+// Custom styled input component
+const StyledInput = React.forwardRef<HTMLInputElement, React.ComponentProps<typeof Input>>(
+  (props, ref) => {
+    return (
+      <Input
+        ref={ref}
+        className="bg-background dark:bg-transparent border-input dark:border-input text-foreground focus-visible:ring-2 focus-visible:ring-white/20 dark:focus-visible:ring-white/20 focus-visible:border-white dark:focus-visible:border-white"
+        {...props}
+      />
+    );
+  }
+);
+StyledInput.displayName = "StyledInput";
 
 export function LoginForm({
   className,
@@ -23,23 +38,39 @@ export function LoginForm({
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
-  const { login, isLoading } = useAuth()
+  const [successMessage, setSuccessMessage] = useState("")
+  const [loading, setLoading] = useState(false)
+  const { signIn } = useAuth()
   const router = useRouter()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
+    setSuccessMessage("")
+    setLoading(true)
     
     try {
-      const success = await login(email, password)
-      if (success) {
+      const result = await signIn(email, password)
+      if (result.success) {
+        setSuccessMessage("Login successful! Redirecting to dashboard...")
         router.push("/dashboard")
       } else {
-        setError("Invalid email or password. Try demo@example.com / password123")
+        // Handle specific error messages
+        if (result.error?.includes("Invalid login credentials")) {
+          setError("Invalid email or password. Please try again.")
+        } else if (result.error?.includes("Email not confirmed")) {
+          setError("Please confirm your email before logging in. Check your inbox for a confirmation link.")
+        } else if (result.error?.includes("Failed to create user profile")) {
+          setError("There was an issue with your account setup. Please try again or contact support.")
+        } else {
+          setError(result.error || "An error occurred during login. Please try again.")
+        }
       }
     } catch (error) {
-      setError("An error occurred. Please try again.")
-      console.error(error)
+      setError("An unexpected error occurred. Please try again later.")
+      console.error("Login error:", error)
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -85,10 +116,15 @@ export function LoginForm({
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
               )}
+              {successMessage && (
+                <Alert>
+                  <AlertDescription className="text-green-600 dark:text-green-400">{successMessage}</AlertDescription>
+                </Alert>
+              )}
               <div className="grid gap-6">
                 <div className="grid gap-3">
                   <Label htmlFor="email">Email</Label>
-                  <Input
+                  <StyledInput
                     id="email"
                     type="email"
                     placeholder="m@example.com"
@@ -107,7 +143,7 @@ export function LoginForm({
                       Forgot your password?
                     </a>
                   </div>
-                  <Input 
+                  <StyledInput 
                     id="password" 
                     type="password" 
                     required 
@@ -116,13 +152,13 @@ export function LoginForm({
                     onChange={(e) => setPassword(e.target.value)}
                   />
                 </div>
-                <Button type="submit" className="w-full" disabled={isLoading}>
-                  {isLoading ? "Logging in..." : "Login"}
+                <Button type="submit" className="w-full" disabled={loading}>
+                  {loading ? "Logging in..." : "Login"}
                 </Button>
               </div>
               <div className="text-center text-sm">
                 Don&apos;t have an account?{" "}
-                <a href="#" className="underline underline-offset-4">
+                <a href="/register" className="underline underline-offset-4">
                   Sign up
                 </a>
               </div>
