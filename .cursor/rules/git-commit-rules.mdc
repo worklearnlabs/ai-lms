@@ -1,0 +1,116 @@
+---
+description: 
+globs: 
+---
+# Git Commit Rule Document
+
+This document outlines the guidelines for committing code changes, branching strategy, and commit messaging to ensure a consistent and reliable CI/CD pipeline. The rules below incorporate best practices from leading organizations like Microsoft and Google.
+
+---
+
+## 1. Branching Strategy
+
+- **Primary Branches:**
+  - **staging:** All feature development and bug fixes are first merged into the staging branch. This branch is used for integration testing and preview deployments.
+  - **prod:** Only thoroughly tested and validated code from staging is merged into the production branch.
+
+- **Workflow:**
+  1. Create feature branches from **staging**.
+  2. Open a pull request (PR) from your feature branch to **staging**.
+  3. Ensure all CI/CD tests pass on the PR before merging.
+  4. Once the staging branch is validated, open a PR from **staging** to **prod**.
+  5. Only merge to **prod** after final approvals and validation.
+
+---
+
+## 2. When to Commit Changes
+
+- **Atomic Changes:**  
+  Commit each logical change separately. Avoid bundling unrelated changes in a single commit. This ensures that each commit is self-contained and reversible if necessary.
+
+- **Frequent Commits:**  
+  Commit changes frequently to maintain a clear history of progress and enable easier troubleshooting. However, avoid committing incomplete work that could break the build.
+
+- **Passing Tests:**  
+  Only commit changes that pass all automated tests and lint checks. If a commit fails, it must be fixed before merging.
+
+- **Pre-Commit Checks:**  
+  Use pre-commit hooks (e.g., linting, tests) to ensure code quality before committing.
+
+---
+
+## 3. Commit Message Guidelines
+
+Adopt a standardized commit message format to help identify and track changes easily. Follow the structure below:
+
+### Format:
+<type>(<scope>): <short summary>
+
+<detailed description>
+[Optional: Reference Issue(s)]
+
+### Guidelines:
+- **Type:** Use one of the following:
+  - `feat`: A new feature.
+  - `fix`: A bug fix.
+  - `docs`: Documentation changes.
+  - `style`: Code style changes (formatting, missing semicolons, etc.) that do not affect functionality.
+  - `refactor`: Code changes that neither fix a bug nor add a feature.
+  - `test`: Adding or updating tests.
+  - `chore`: Miscellaneous tasks (e.g., build process, tooling changes).
+
+- **Scope:** (Optional) The part of the codebase affected (e.g., `ui`, `backend`, `api`).
+
+- **Short Summary:**
+  - Use an imperative mood (e.g., “Add”, “Fix”, “Update”).
+  - Limit to 50 characters or less.
+  - Provide a concise description of the change.
+
+- **Detailed Description:**  
+  Expand on the summary to include:
+  - Motivation for the change.
+  - How the change addresses the issue.
+  - Any additional context that might be necessary.
+
+- **Issue References:**  
+  [Optional] If applicable, reference any related issue IDs (e.g., `Closes #123`).
+
+### Example:
+feat(api): add user authentication endpoint
+
+Implemented JWT-based authentication for user login. This endpoint verifies credentials and returns a token. Closes #456
+
+
+---
+
+## 4. Merging and CI/CD Guidelines
+
+- **PR Validation:**
+  - Every pull request must trigger the CI/CD pipeline.
+  - Ensure all tests and lint checks pass before merging a PR.
+
+- **Merging Strategy:**
+  - **Squash Merges:** Recommended to maintain a clean commit history. The final commit message should summarize all changes from the feature branch.
+  - **Merge Commits:** Allowed if additional context is needed, but ensure commit messages follow the guidelines.
+
+- **Deployment:**
+  - Changes merged to **staging** are deployed to preview environments for integration testing.
+  - Only after final validation should the **staging** branch be merged into **prod** for production deployment.
+
+---
+
+## 5. Best Practices
+
+- **Atomic Commits:**  
+  Keep commits small and focused on a single purpose.
+
+- **Descriptive Messages:**  
+  Ensure commit messages clearly describe the “what” and “why” of changes.
+
+- **Consistent Use of Branches:**  
+  Always commit changes to a feature branch derived from **staging** and follow the PR process to maintain CI/CD integrity.
+
+- **Review and Update:**  
+  Regularly review this document and update practices as necessary based on team feedback and evolving best practices.
+
+
