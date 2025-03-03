@@ -9,56 +9,57 @@ The Adaptive Learning System's codebase will follow a modular structure, organiz
 ```
 project-root/
 ├── src/
+│   ├── app/ # Next.js App Router structure
+│   │   ├── (auth)/ # Auth-related routes grouped
+│   │   │   ├── login/
+│   │   │   ├── register/
+│   │   │   └── onboarding/
+│   │   ├── dashboard/
+│   │   ├── blueprints/
+│   │   ├── courses/
+│   │   ├── community/
+│   │   ├── api/ # Backend API routes
+│   │   │   ├── auth/
+│   │   │   ├── blueprint/
+│   │   │   ├── ai/
+│   │   │   ├── courses/
+│   │   │   └── community/
+│   │   └── actions/ # Server actions (Vercel Serverless)
 │   ├── components/
-│   │   ├── ui/
-│   │   │   ├── Button.tsx
-│   │   │   ├── Card.tsx
-│   │   │   └── Modal.tsx
-│   │   └── pages/
-│   │       ├── Dashboard/
-│   │       │   ├── Dashboard.tsx
-│   │       │   └── Dashboard.less
-│   │       ├── Course/
-│   │       │   ├── CourseList.tsx
-│   │       │   └── CourseDetails.tsx
-│   │       └── Community/
-│   │           ├── DiscussionBoard.tsx
-│   │           └── EventCalendar.tsx
-│   ├── services/
-│   │   ├── api/
-│   │   │   ├── openaiService.ts
-│   │   │   ├── perplexityService.ts
-│   │   │   └── anthropicService.ts
-│   │   └── authService.ts
-│   ├── hooks/
-│   │   ├── useAuth.ts
-│   │   ├── useBlueprint.ts
-│   │   └── useAnalytics.ts
-│   ├── utils/
-│   │   ├── helpers.ts
-│   │   ├── constants.ts
-│   │   └── validation.ts
-│   ├── styles/
-│   │   ├── global.css
-│   │   └── themes/
-│   └── App.tsx
+│   │   ├── ui/ # Reusable UI components
+│   │   ├── forms/ # Form components
+│   │   └── layouts/ # Layout components
+│   ├── lib/ # Core utilities and services
+│   │   ├── supabase/ # Supabase client and config
+│   │   ├── ai/ # AI service integrations
+│   │   │   ├── openai.ts
+│   │   │   ├── anthropic.ts
+│   │   │   ├── perplexity.ts
+│   │   │   └── orchestrator.ts # Fallback handling
+│   │   ├── auth/ # Authentication utilities
+│   │   └── error/ # Error handling infrastructure
+│   ├── models/ # TypeScript interfaces and schema definitions
+│   │   ├── user.ts
+│   │   ├── blueprint.ts
+│   │   ├── course.ts
+│   │   └── types.d.ts
+│   ├── hooks/ # Custom React hooks
+│   ├── utils/ # Helper functions
+│   └── styles/ # Global styles
 ├── public/
 ├── docs/
-│   ├── README.md
-│   ├── CONTRIBUTING.md
-│   ├── CODE_OF_CONDUCT.md
-│   ├── deployment_guide.md
-│   ├── architecture_overview.md
-│   ├── api_reference.md
-│   ├── blueprint_integration_guide.md
-│   ├── user_roles_permissions.md
-│   └── community_guidelines.md
 ├── tests/
 │   ├── unit/
-│   └── integration/
+│   ├── integration/
+│   └── e2e/
+├── prisma/
+│   └── schema.prisma
+├── middleware.ts # Next.js middleware for auth/routing
+├── next.config.js
 ├── package.json
 ├── tsconfig.json
-└── .gitignore
+└── .env.example
+
 ```
 
 ### Key Directories Explained

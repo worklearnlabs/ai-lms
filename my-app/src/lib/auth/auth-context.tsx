@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useContext, createContext } from "react"
-import { createBrowserClient } from '@supabase/ssr'
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { User } from "@/models/types"
 
 interface AuthContextType {
@@ -19,10 +19,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
 
   // Create supabase client on the client-side
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
+  const supabase = createClientComponentClient()
 
   useEffect(() => {
     // Check if the user is already signed in
