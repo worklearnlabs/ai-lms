@@ -9,9 +9,9 @@ import {
   GalleryVerticalEnd,
   PieChart,
   Settings2,
-  SquareTerminal,
   Waypoints,
   Route,
+  LayoutDashboard,
 } from "lucide-react"
 
 import { NavMain } from "@/components/nav-main"
@@ -36,7 +36,7 @@ const data = {
       plan: "Business",
     },
     {
-      name: "Personal Account",
+      name: "Amadeu Ferreira",
       logo: Command,
       plan: "Personal",
     },
@@ -45,7 +45,7 @@ const data = {
     {
       title: "Dashboard",
       url: "#",
-      icon: SquareTerminal,
+      icon: LayoutDashboard,
       isActive: true,
       items: [],
     },
@@ -93,15 +93,19 @@ const data = {
       icon: Waypoints,
       items: [
         {
-          title: "No-Code",
+          title: "Explore",
           url: "#",
         },
         {
-          title: "AI Developer",
+          title: "Events",
           url: "#",
         },
         {
-          title: "Data Scientist",
+          title: "News",
+          url: "#",
+        },
+        {
+          title: "Marketplace",
           url: "#",
         },
         ],
@@ -112,7 +116,7 @@ const data = {
       icon: Settings2,
       items: [
         {
-          title: "General",
+          title: "Profile",
           url: "#",
         },
         {
