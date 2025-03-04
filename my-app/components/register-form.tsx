@@ -35,7 +35,8 @@ export function RegisterForm({
   className,
   ...props
 }: React.ComponentProps<"div">) {
-  const [name, setName] = useState("")
+  const [firstName, setFirstName] = useState("")
+  const [lastName, setLastName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
@@ -61,13 +62,14 @@ export function RegisterForm({
     }
     
     try {
-      const result = await signUp(email, password, name)
+      const result = await signUp(email, password, firstName, lastName)
       if (result.success) {
         if (result.requiresEmailConfirmation) {
           // Show success message with email confirmation instructions
           setSuccessMessage(result.message || "Please check your email to confirm your account before logging in.")
           // Clear the form
-          setName("")
+          setFirstName("")
+          setLastName("")
           setEmail("")
           setPassword("")
           setConfirmPassword("")
@@ -107,14 +109,25 @@ export function RegisterForm({
                 </Alert>
               )}
               <div className="grid gap-3">
-                <Label htmlFor="name">Full Name</Label>
+                <Label htmlFor="firstName">First Name</Label>
                 <StyledInput
-                  id="name"
+                  id="firstName"
                   type="text"
-                  placeholder="John Doe"
+                  placeholder="John"
                   required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                />
+              </div>
+              <div className="grid gap-3">
+                <Label htmlFor="lastName">Last Name</Label>
+                <StyledInput
+                  id="lastName"
+                  type="text"
+                  placeholder="Doe"
+                  required
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
                 />
               </div>
               <div className="grid gap-3">

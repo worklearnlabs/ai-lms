@@ -158,7 +158,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   
   // Create a user object for NavUser component
   const userForNav = user ? {
-    name: user.name,
+    name: `${user.firstName} ${user.lastName}`,
     email: user.email,
     avatar: "/avatars/shadcn.jpg", // Default avatar path
   } : {

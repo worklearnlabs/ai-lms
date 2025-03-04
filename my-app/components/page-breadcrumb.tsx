@@ -1,3 +1,5 @@
+"use client"
+
 import { usePathname } from "next/navigation"
 import {
   Breadcrumb,
@@ -26,7 +28,7 @@ export function PageBreadcrumb() {
   }
   
   // Check if we're in the settings section
-  const isSettingsSection = pathname.includes('/dashboard/settings')
+  const isSettingsSection = pathname.includes('/settings')
   
   // If in settings section, show Settings > [Tab]
   if (isSettingsSection) {
@@ -36,7 +38,7 @@ export function PageBreadcrumb() {
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
-            <BreadcrumbLink href="/dashboard/settings">Settings</BreadcrumbLink>
+            <BreadcrumbLink href="/settings">Settings</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
