@@ -1,30 +1,59 @@
-import type { Metadata } from "next";
-import { Inter } from "next/font/google";
-import "./globals.css";
-import { AuthProvider } from "../src/lib/auth/auth-provider";
-import { ThemeProvider } from "@/components/theme-provider";
+import "./globals.css"
+import type { Metadata } from "next"
+import { Inter } from "next/font/google"
+import { AuthProvider } from "@/src/lib/auth/auth-provider"
+import { ThemeProvider } from "@/components/theme-provider"
+import { Toaster } from "@/components/ui/sonner"
+import Script from "next/script"
 
-const inter = Inter({ subsets: ["latin"] });
+const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
   title: "Adaptive Learning System",
-  description: "A personalized learning platform for AI enthusiasts and professionals",
-};
+  description: "A personalized learning platform",
+  colorScheme: "dark light",
+}
 
 export default function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+}: {
+  children: React.ReactNode
+}) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head />
       <body className={inter.className}>
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+        {/* Script to prevent theme flash - executed before React hydration */}
+        <Script
+          id="theme-switcher"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{
+            __html: `
+              try {
+                const storedTheme = localStorage.getItem('theme') || 'system';
+                const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+                const theme = storedTheme === 'system' ? systemTheme : storedTheme;
+                
+                document.documentElement.classList.toggle('dark', theme === 'dark');
+                document.documentElement.style.colorScheme = theme;
+              } catch (e) {
+                console.error('Theme initialization failed:', e);
+              }
+            `,
+          }}
+        />
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
           <AuthProvider>
             {children}
+            <Toaster />
           </AuthProvider>
         </ThemeProvider>
       </body>
     </html>
-  );
+  )
 }

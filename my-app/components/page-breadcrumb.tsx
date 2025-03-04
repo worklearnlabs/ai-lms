@@ -2,8 +2,10 @@ import { usePathname } from "next/navigation"
 import {
   Breadcrumb,
   BreadcrumbItem,
+  BreadcrumbLink,
   BreadcrumbList,
   BreadcrumbPage,
+  BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 
 export function PageBreadcrumb() {
@@ -23,6 +25,29 @@ export function PageBreadcrumb() {
     return lastSegment.charAt(0).toUpperCase() + lastSegment.slice(1)
   }
   
+  // Check if we're in the settings section
+  const isSettingsSection = pathname.includes('/dashboard/settings')
+  
+  // If in settings section, show Settings > [Tab]
+  if (isSettingsSection) {
+    const pageName = getPageName(pathname)
+    
+    return (
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink href="/dashboard/settings">Settings</BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>{pageName}</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+    )
+  }
+  
+  // Default breadcrumb for other pages
   const pageName = getPageName(pathname)
   
   return (
