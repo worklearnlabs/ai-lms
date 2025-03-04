@@ -27,33 +27,43 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { useAuth } from "@/src/lib/auth/auth-provider"
-import { createClient } from "@/src/lib/supabase/client"
+import { createClientSupabase } from "@/src/lib/supabase/client"
 
 // Define a type for the database user format
 interface DbUser {
   first_name?: string;
   last_name?: string;
+  email?: string;
   skill_level?: string;
   learning_objectives?: string;
-  email?: string;
+  preferred_learning_style?: string;
 }
 
 const profileFormSchema = z.object({
-  firstName: z.string().min(2, {
-    message: "First name must be at least 2 characters.",
-  }),
-  lastName: z.string().min(2, {
-    message: "Last name must be at least 2 characters.",
-  }),
-  email: z.string().email({
-    message: "Please enter a valid email address.",
-  }),
-  skillLevel: z.enum(["basic", "intermediate", "advanced", "specialist"], {
-    required_error: "Please select a skill level.",
-  }),
-  learningObjectives: z.string().max(1000, {
-    message: "Learning objectives must not be longer than 1000 characters.",
-  }).optional(),
+  firstName: z
+    .string()
+    .min(2, {
+      message: "First name must be at least 2 characters.",
+    })
+    .max(30, {
+      message: "First name must not be longer than 30 characters.",
+    }),
+  lastName: z
+    .string()
+    .min(2, {
+      message: "Last name must be at least 2 characters.",
+    })
+    .max(30, {
+      message: "Last name must not be longer than 30 characters.",
+    }),
+  email: z
+    .string()
+    .email({
+      message: "Please enter a valid email address.",
+    })
+    .optional(),
+  skillLevel: z.string().optional(),
+  learningObjectives: z.string().optional(),
 })
 
 type ProfileFormValues = z.infer<typeof profileFormSchema>
@@ -61,38 +71,69 @@ type ProfileFormValues = z.infer<typeof profileFormSchema>
 export default function ProfilePage() {
   const { user, updateUserProfile } = useAuth()
   const router = useRouter()
-  const [isLoading, setIsLoading] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [dbUser, setDbUser] = useState<DbUser | null>(null)
-
-  console.log("Profile page - User data:", user);
-  console.log("Profile page - User properties:", user ? Object.keys(user) : "No user");
-  console.log("Profile page - DB User:", dbUser);
   
   // Fetch user data directly from Supabase if auth context user is null
   useEffect(() => {
     async function fetchUserData() {
-      if (!user) {
+      try {
+        setIsSubmitting(true);
+        
+        // Always try to fetch from Supabase directly for this page
         try {
-          const supabase = createClient();
-          const { data: { session } } = await supabase.auth.getSession();
+          const supabase = createClientSupabase();
           
-          if (session?.user?.email) {
-            const { data, error } = await supabase
+          const { data } = await supabase.auth.getSession();
+          
+          const session = data.session;
+          
+          if (!session) {
+            return;
+          }
+          
+          // Try to fetch user data by email
+          const { data: userData, error: userError } = await supabase
+            .from("users")
+            .select("*")
+            .eq("email", session.user.email)
+            .single();
+          
+          if (userError) {
+            // If that fails, try by ID
+            const { data: userDataById } = await supabase
               .from("users")
               .select("*")
-              .eq("email", session.user.email)
+              .eq("id", session.user.id)
               .single();
             
-            if (data && !error) {
-              console.log("Fetched user data directly:", data);
-              setDbUser(data);
-            } else {
-              console.error("Error fetching user data:", error);
+            if (userDataById) {
+              setDbUser({
+                first_name: userDataById.first_name,
+                last_name: userDataById.last_name,
+                skill_level: userDataById.skill_level,
+                learning_objectives: userDataById.learning_objectives,
+                email: userDataById.email,
+                preferred_learning_style: userDataById.preferred_learning_style
+              });
             }
+          } else if (userData) {
+            setDbUser({
+              first_name: userData.first_name,
+              last_name: userData.last_name,
+              skill_level: userData.skill_level,
+              learning_objectives: userData.learning_objectives,
+              email: userData.email,
+              preferred_learning_style: userData.preferred_learning_style
+            });
           }
-        } catch (error) {
-          console.error("Error in fetchUserData:", error);
+        } catch {
+          // Handle Supabase error silently
         }
+      } catch {
+        // Handle general error silently
+      } finally {
+        setIsSubmitting(false);
       }
     }
     
@@ -101,18 +142,25 @@ export default function ProfilePage() {
   
   // Create default values with required fields
   const getDefaultValues = (): ProfileFormValues => {
-    console.log("Getting default values with user:", user);
-    console.log("Getting default values with dbUser:", dbUser);
-    
     const skillLevel = user?.skillLevel || dbUser?.skill_level || "basic";
-    console.log("Determined skill level:", skillLevel);
     
+    if (user) {
+      return {
+        firstName: user.firstName || "",
+        lastName: user.lastName || "",
+        email: user.email || dbUser?.email || "user@example.com",
+        skillLevel: skillLevel as "basic" | "intermediate" | "advanced" | "specialist",
+        learningObjectives: user.learningObjectives || dbUser?.learning_objectives || "",
+      };
+    }
+    
+    // When using dbUser, ensure we're properly handling the values
     return {
-      firstName: user?.firstName || dbUser?.first_name || "John",
-      lastName: user?.lastName || dbUser?.last_name || "Doe",
-      email: user?.email || dbUser?.email || "user@example.com",
+      firstName: dbUser?.first_name || "",
+      lastName: dbUser?.last_name || "",
+      email: dbUser?.email || "",
       skillLevel: skillLevel as "basic" | "intermediate" | "advanced" | "specialist",
-      learningObjectives: user?.learningObjectives || dbUser?.learning_objectives || "",
+      learningObjectives: dbUser?.learning_objectives || "",
     };
   };
   
@@ -123,25 +171,33 @@ export default function ProfilePage() {
   
   // Reset form when user or dbUser changes
   useEffect(() => {
-    console.log("useEffect triggered for form reset with user:", user);
-    console.log("useEffect triggered for form reset with dbUser:", dbUser);
-    
-    if (user || dbUser) {
-      const defaultValues = getDefaultValues();
-      console.log("Resetting form with values:", defaultValues);
-      form.reset(defaultValues);
+    if (user || (dbUser && (dbUser.first_name || dbUser.last_name))) {
+      getDefaultValues();
+      
+      // Force reset with specific values to ensure they're applied
+      form.reset({
+        firstName: user?.firstName || dbUser?.first_name || "",
+        lastName: user?.lastName || dbUser?.last_name || "",
+        email: user?.email || dbUser?.email || "",
+        skillLevel: (user?.skillLevel || dbUser?.skill_level || "basic") as "basic" | "intermediate" | "advanced" | "specialist",
+        learningObjectives: user?.learningObjectives || dbUser?.learning_objectives || "",
+      } as ProfileFormValues);
+      
+      // Manually set field values as a backup
+      if (dbUser?.first_name) {
+        form.setValue("firstName", dbUser.first_name);
+      }
+      if (dbUser?.last_name) {
+        form.setValue("lastName", dbUser.last_name);
+      }
     }
   }, [user, dbUser, form]);
 
-  async function onSubmit(data: ProfileFormValues) {
-    setIsLoading(true);
+  const onSubmit = async (data: ProfileFormValues) => {
+    setIsSubmitting(true);
     
     try {
-      console.log("Submitting profile update with data:", data);
-      
       if (user) {
-        console.log("Updating profile using auth provider");
-        // Use auth provider's updateUserProfile if user is available
         const result = await updateUserProfile({
           firstName: data.firstName,
           lastName: data.lastName,
@@ -150,22 +206,16 @@ export default function ProfilePage() {
         });
         
         if (!result.success) {
-          console.error("Error updating profile via auth provider:", result.error);
           throw new Error(result.error);
         }
-        
-        console.log("Profile updated successfully via auth provider");
       } else {
-        console.log("Updating profile directly using Supabase client");
-        // Update directly using Supabase client if user is not in auth context
-        const supabase = createClient();
+        const supabase = createClientSupabase();
         const { data: { session } } = await supabase.auth.getSession();
         
         if (!session?.user?.email) {
           throw new Error("No active session found");
         }
         
-        console.log("Found active session, updating user data");
         const { error } = await supabase
           .from("users")
           .update({
@@ -177,11 +227,9 @@ export default function ProfilePage() {
           .eq("email", session.user.email);
         
         if (error) {
-          console.error("Error updating user data:", error);
           throw new Error(error.message);
         }
         
-        console.log("User data updated, refreshing local state");
         // Refresh the local dbUser state
         const { data: updatedUser, error: fetchError } = await supabase
           .from("users")
@@ -190,9 +238,8 @@ export default function ProfilePage() {
           .single();
         
         if (fetchError) {
-          console.error("Error fetching updated user data:", fetchError);
+          throw new Error(fetchError.message);
         } else if (updatedUser) {
-          console.log("Updated user data:", updatedUser);
           setDbUser(updatedUser);
         }
       }
@@ -200,24 +247,23 @@ export default function ProfilePage() {
       toast.success("Profile updated successfully");
       router.refresh();
     } catch (error) {
-      console.error("Error updating profile:", error);
       toast.error(error instanceof Error ? error.message : "Failed to update profile. Please try again.");
     } finally {
-      setIsLoading(false);
+      setIsSubmitting(false);
     }
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
-        <h2 className="text-xl font-semibold">Profile</h2>
-        <p className="text-sm text-muted-foreground">
-          Update your personal information and how others see you on the platform.
+        <h3 className="text-lg font-medium">Profile</h3>
+        <p className="text-sm text-muted-foreground mt-2">
+          Update your personal information.
         </p>
       </div>
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
             <FormField
               control={form.control}
               name="firstName"
@@ -225,7 +271,7 @@ export default function ProfilePage() {
                 <FormItem>
                   <FormLabel>First Name</FormLabel>
                   <FormControl>
-                    <Input placeholder="John" {...field} />
+                    <Input placeholder="John" {...field} value={field.value || ""} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -238,13 +284,14 @@ export default function ProfilePage() {
                 <FormItem>
                   <FormLabel>Last Name</FormLabel>
                   <FormControl>
-                    <Input placeholder="Doe" {...field} />
+                    <Input placeholder="Doe" {...field} value={field.value || ""} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
           </div>
+
           <FormField
             control={form.control}
             name="email"
@@ -253,8 +300,9 @@ export default function ProfilePage() {
                 <FormLabel>Email</FormLabel>
                 <FormControl>
                   <Input 
-                    placeholder="john.doe@example.com" 
+                    placeholder="example@domain.com" 
                     {...field} 
+                    value={field.value || ""} 
                     disabled 
                   />
                 </FormControl>
@@ -265,6 +313,7 @@ export default function ProfilePage() {
               </FormItem>
             )}
           />
+
           <FormField
             control={form.control}
             name="skillLevel"
@@ -295,6 +344,7 @@ export default function ProfilePage() {
               </FormItem>
             )}
           />
+
           <FormField
             control={form.control}
             name="learningObjectives"
@@ -304,7 +354,7 @@ export default function ProfilePage() {
                 <FormControl>
                   <Textarea
                     placeholder="What do you want to achieve with AI? What are your learning goals?"
-                    className="resize-none"
+                    className="resize-none min-h-[120px]"
                     {...field}
                     value={field.value || ""}
                   />
@@ -316,16 +366,9 @@ export default function ProfilePage() {
               </FormItem>
             )}
           />
-          <Button type="submit" disabled={isLoading} className="w-full md:w-auto">
-            {isLoading ? (
-              <>
-                <span className="mr-2">Saving...</span>
-                <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-              </>
-            ) : "Save changes"}
+
+          <Button type="submit" disabled={isSubmitting}>
+            {isSubmitting ? "Saving..." : "Save changes"}
           </Button>
         </form>
       </Form>
