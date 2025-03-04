@@ -4,7 +4,7 @@
 
 The Adaptive Learning System is a web-based platform built for AI enthusiasts and professionals who want to learn and master AI through hands-on implementation. It simplifies daily learning operations by providing personalized AI workflow blueprints, step-by-step implementation guides, and actionable insights to help users advance their careers or grow their businesses. By blending human validation with automated processes, the platform ensures users not only execute AI projects efficiently but also learn from every implementation with measurable progress.
 
-This project is being built to address the gap between theoretical AI education and practical application. The key objectives are to offer a highly adaptive learning environment that customizes content based on the user’s self-assessed AI skill levels and career objectives, and to create a robust system that integrates multiple AI services with fallback mechanisms to ensure continuous operation. Success will be measured by user engagement, the quality and evolution of AI blueprints, and the seamless integration of AI-guided learning with practical, real-world outcomes.
+This project is being built to address the gap between theoretical AI education and practical application. The key objectives are to offer a highly adaptive learning environment that customizes content based on the user's self-assessed AI skill levels and career objectives, and to create a robust system that integrates multiple AI services with fallback mechanisms to ensure continuous operation. Success will be measured by user engagement, the quality and evolution of AI blueprints, and the seamless integration of AI-guided learning with practical, real-world outcomes.
 
 ## 2. In-Scope vs. Out-of-Scope
 
@@ -160,5 +160,18 @@ After onboarding, users navigate to the central dashboard. Here, they can track 
 
   - Ensuring context preservation and smooth transitions during AI integration failures can be complex.
   - Mitigation: Develop thorough error-handling routines with clear, non-technical messages to users, and continuously test using simulated API failures.
+
+## 9. Documentation
+
+The following documentation is available to help developers understand and work with the Adaptive Learning System:
+
+- [Project Requirements Document](docs/project_requirements_document.md) - Comprehensive overview of the project requirements
+- [Codebase Structure](docs/codebase_structure.md) - Overview of the codebase organization
+- [Supabase Integration Guide](docs/supabase_integration_guide.md) - Guidelines and best practices for using Supabase in the project
+- [Frontend Guidelines](docs/frontend_guidelines_document.md) - Guidelines for frontend development
+- [Backend Structure](docs/backend_structure_document.md) - Overview of the backend architecture
+- [App Flow](docs/app_flow_document.md) - Description of the application flow
+- [Tech Stack](docs/tech_stack_document.md) - Details about the technology stack used in the project
+- [Implementation Plan](docs/implementation_plan.md) - Plan for implementing the project
 
 This PRD serves as the comprehensive blueprint for the Adaptive Learning System project, ensuring that every component—from user onboarding to AI integration and error handling—is detailed, leaving no room for guesswork in subsequent technical documents.
