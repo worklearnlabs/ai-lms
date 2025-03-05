@@ -1,39 +1,49 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { BlueprintsSection } from "@/components/dashboard/blueprints-section";
-import { CreateBlueprintButton } from "./components/create-blueprint-button";
+"use client"
+
+import { useState, useEffect } from "react"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { BlueprintsSection } from "@/components/dashboard/blueprints-section"
+import { CreateBlueprintButton } from "./components/create-blueprint-button"
+import { getBlueprints, Blueprint } from "@/lib/models/blueprint"
+import { Skeleton } from "@/components/ui/skeleton"
+import { formatRelativeDate } from "@/lib/utils"
 
 export default function BlueprintsPage() {
-  // This would normally fetch from the database
-  const blueprints = [
-    {
-      id: "1",
-      title: "LinkedIn Data Scraper",
-      stepsCount: 5,
-      details: "Automated daily search of LinkedIn posts containing specific keywords, followed by extraction and summarization.",
-      isVerified: true,
-      cloneCount: 23,
-      lastUpdated: "3 days ago"
-    },
-    {
-      id: "2",
-      title: "Customer Support Chatbot",
-      stepsCount: 7,
-      details: "AI-powered chatbot that handles customer inquiries, processes basic requests, and escalates complex issues.",
-      isVerified: false,
-      cloneCount: 5, 
-      lastUpdated: "1 week ago"
-    },
-    {
-      id: "3",
-      title: "Content Recommendation Engine",
-      stepsCount: 6,
-      details: "Engine that analyzes user behavior and preferences to suggest personalized content and products.",
-      isVerified: true,
-      cloneCount: 18,
-      lastUpdated: "2 weeks ago"
+  const [blueprints, setBlueprints] = useState<Blueprint[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    async function fetchBlueprints() {
+      try {
+        setLoading(true)
+        // In a real app, you'd get the user ID from auth context
+        const userId = "user-1"
+        const data = await getBlueprints(userId)
+        setBlueprints(data)
+        setError(null)
+      } catch (err) {
+        console.error("Error fetching blueprints:", err)
+        setError("Failed to load blueprints. Please try again later.")
+      } finally {
+        setLoading(false)
+      }
     }
-  ];
-  
+
+    fetchBlueprints()
+  }, [])
+
+  // Transform Blueprint to format expected by BlueprintsSection
+  const formattedBlueprints = blueprints.map(blueprint => ({
+    id: blueprint.id,
+    title: blueprint.title,
+    stepsCount: blueprint.stepsCount,
+    details: blueprint.details,
+    isVerified: blueprint.isVerified,
+    cloneCount: blueprint.cloneCount,
+    lastUpdated: formatRelativeDate(blueprint.updatedAt)
+  }))
+
   return (
     <div className="flex-1 p-6">
       <div className="flex items-center justify-between mb-6">
@@ -54,9 +64,27 @@ export default function BlueprintsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="p-6">
-          <BlueprintsSection blueprints={blueprints} />
+          {loading ? (
+            <div className="space-y-4">
+              {[1, 2, 3].map((i) => (
+                <Skeleton key={i} className="h-24 w-full" />
+              ))}
+            </div>
+          ) : error ? (
+            <div className="text-center py-8">
+              <p className="text-red-500">{error}</p>
+              <button 
+                onClick={() => window.location.reload()}
+                className="mt-4 px-4 py-2 bg-primary text-primary-foreground rounded"
+              >
+                Retry
+              </button>
+            </div>
+          ) : (
+            <BlueprintsSection blueprints={formattedBlueprints} />
+          )}
         </CardContent>
       </Card>
     </div>
-  );
+  )
 } 
