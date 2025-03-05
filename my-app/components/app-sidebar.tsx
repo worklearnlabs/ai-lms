@@ -12,7 +12,11 @@ import {
   Waypoints,
   Route,
   LayoutDashboard,
+  ChevronDown,
 } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Link } from "react-router-dom"
+import { cn } from "@/lib/utils"
 
 import { NavMain } from "@/components/nav-main"
 import { NavProjects } from "@/components/nav-projects"
@@ -44,10 +48,10 @@ const data = {
   navMain: [
     {
       title: "Dashboard",
-      url: "#",
+      url: "/dashboard",
       icon: LayoutDashboard,
       isActive: true,
-      items: [],
+      items: null,
     },
     {
       title: "Guides",
