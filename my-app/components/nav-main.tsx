@@ -19,6 +19,7 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar"
+import { CreateBlueprintModal } from "@/app/blueprints/components/create-blueprint-modal"
 
 // Define our item type
 type NavItem = {
@@ -96,14 +97,24 @@ export function NavMain({
                   <SidebarMenuSub>
                     {item.items?.map((subItem) => (
                       <SidebarMenuSubItem key={subItem.title}>
-                        <SidebarMenuSubButton 
-                          asChild
-                          onClick={() => handleNavigation(subItem.url)}
-                        >
-                          <Link href={subItem.url}>
-                            <span>{subItem.title}</span>
-                          </Link>
-                        </SidebarMenuSubButton>
+                        {subItem.title === "Create Blueprint" ? (
+                          <CreateBlueprintModal
+                            triggerButton={
+                              <SidebarMenuSubButton className="cursor-pointer">
+                                <span>Create Blueprint</span>
+                              </SidebarMenuSubButton>
+                            }
+                          />
+                        ) : (
+                          <SidebarMenuSubButton 
+                            asChild
+                            onClick={() => handleNavigation(subItem.url)}
+                          >
+                            <Link href={subItem.url}>
+                              <span>{subItem.title}</span>
+                            </Link>
+                          </SidebarMenuSubButton>
+                        )}
                       </SidebarMenuSubItem>
                     ))}
                   </SidebarMenuSub>

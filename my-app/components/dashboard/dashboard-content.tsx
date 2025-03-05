@@ -1,12 +1,13 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Code, BookOpen, Calendar, Plus, ArrowRight } from "lucide-react"
+import { Code, BookOpen, Calendar, ArrowRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { KpiCard } from "./kpi-card"
 import { BlueprintsSection } from "./blueprints-section"
 import { CoursesSection } from "./courses-section"
 import { EventsSection } from "./events-section"
 import Link from "next/link"
+import { CreateBlueprintButton } from "@/app/blueprints/components/create-blueprint-button"
 
 // Types for our data
 interface DashboardData {
@@ -91,11 +92,7 @@ export function DashboardContent({ data }: DashboardContentProps) {
                 Your AI workflows and blueprints
               </CardDescription>
             </div>
-            <Link href="/blueprints">
-              <Button size="sm">
-                <Plus className="h-4 w-4 mr-2" /> Create Blueprint
-              </Button>
-            </Link>
+            <CreateBlueprintButton />
           </CardHeader>
           <CardContent className="p-4 max-h-[60vh] overflow-y-auto">
             <BlueprintsSection blueprints={data.blueprints} />

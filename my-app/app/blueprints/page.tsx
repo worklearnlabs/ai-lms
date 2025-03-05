@@ -1,7 +1,6 @@
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { BlueprintsSection } from "@/components/dashboard/blueprints-section";
-import { Plus } from "lucide-react";
+import { CreateBlueprintButton } from "./components/create-blueprint-button";
 
 export default function BlueprintsPage() {
   // This would normally fetch from the database
@@ -43,9 +42,7 @@ export default function BlueprintsPage() {
           <p className="text-muted-foreground">View and manage your custom AI workflow blueprints</p>
         </div>
         <div className="flex space-x-2">
-          <Button>
-            <Plus className="h-4 w-4 mr-2" /> Create New Blueprint
-          </Button>
+          <CreateBlueprintButton />
         </div>
       </div>
       
