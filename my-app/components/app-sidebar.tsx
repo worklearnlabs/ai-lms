@@ -12,11 +12,9 @@ import {
   Waypoints,
   Route,
   LayoutDashboard,
-  ChevronDown,
+  Sparkles,
 } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Link } from "react-router-dom"
-import { cn } from "@/lib/utils"
+
 
 import { NavMain } from "@/components/nav-main"
 import { NavProjects } from "@/components/nav-projects"
@@ -52,6 +50,22 @@ const data = {
       icon: LayoutDashboard,
       isActive: true,
       items: null,
+    },
+    {
+      title: "Blueprints",
+      url: "/blueprints",
+      icon: Sparkles,
+      isActive: true,
+      items: [
+        {
+          title: "Create Blueprint",
+          url: "#",
+        },
+        {
+          title: "My Blueprints",
+          url: "#",
+        },
+      ],
     },
     {
       title: "Guides",

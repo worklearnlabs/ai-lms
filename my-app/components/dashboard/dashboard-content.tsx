@@ -6,6 +6,7 @@ import { KpiCard } from "./kpi-card"
 import { BlueprintsSection } from "./blueprints-section"
 import { CoursesSection } from "./courses-section"
 import { EventsSection } from "./events-section"
+import Link from "next/link"
 
 // Types for our data
 interface DashboardData {
@@ -90,12 +91,21 @@ export function DashboardContent({ data }: DashboardContentProps) {
                 Your AI workflows and blueprints
               </CardDescription>
             </div>
-            <Button size="sm">
-              <Plus className="h-4 w-4 mr-2" /> Create Blueprint
-            </Button>
+            <Link href="/blueprints">
+              <Button size="sm">
+                <Plus className="h-4 w-4 mr-2" /> Create Blueprint
+              </Button>
+            </Link>
           </CardHeader>
           <CardContent className="p-4 max-h-[60vh] overflow-y-auto">
             <BlueprintsSection blueprints={data.blueprints} />
+            <div className="mt-4">
+              <Link href="/blueprints">
+                <Button variant="link" className="px-0 flex items-center text-sm font-medium">
+                  View all blueprints <ArrowRight className="h-4 w-4 ml-1" />
+                </Button>
+              </Link>
+            </div>
           </CardContent>
         </Card>
 

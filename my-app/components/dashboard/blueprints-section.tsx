@@ -1,8 +1,8 @@
 import { Button } from "@/components/ui/button"
 import { Plus } from "lucide-react"
-import { BlueprintCard } from "./blueprint-card"
+import BlueprintCard from "./blueprint-card"
 
-interface Blueprint {
+interface DashboardBlueprint {
   id: string
   title: string
   stepsCount: number
@@ -13,7 +13,7 @@ interface Blueprint {
 }
 
 interface BlueprintsSectionProps {
-  blueprints: Blueprint[]
+  blueprints: DashboardBlueprint[]
 }
 
 export function BlueprintsSection({ blueprints }: BlueprintsSectionProps) {
@@ -23,13 +23,20 @@ export function BlueprintsSection({ blueprints }: BlueprintsSectionProps) {
         blueprints.map((blueprint) => (
           <BlueprintCard
             key={blueprint.id}
-            id={blueprint.id}
-            title={blueprint.title}
-            stepsCount={blueprint.stepsCount}
-            details={blueprint.details}
-            isVerified={blueprint.isVerified}
-            cloneCount={blueprint.cloneCount}
-            lastUpdated={blueprint.lastUpdated}
+            blueprint={{
+              id: blueprint.id,
+              title: blueprint.title,
+              stepsCount: blueprint.stepsCount,
+              details: blueprint.details,
+              isVerified: blueprint.isVerified,
+              cloneCount: blueprint.cloneCount,
+              status: "completed",
+              prompt: "",
+              content: [],
+              userId: "user-1",
+              createdAt: new Date().toISOString(),
+              updatedAt: blueprint.lastUpdated || new Date().toISOString(),
+            }}
           />
         ))
       ) : (
