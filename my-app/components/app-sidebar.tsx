@@ -31,7 +31,7 @@ import { useAuth } from "@/src/lib/auth/auth-provider"
 const data = {
   teams: [
     {
-      name: "Acme Inc",
+      name: "Highline Beta",
       logo: GalleryVerticalEnd,
       plan: "Business",
     },
@@ -117,7 +117,7 @@ const data = {
       items: [
         {
           title: "Profile",
-          url: "#",
+          url: "/settings/profile",
         },
         {
           title: "Team",

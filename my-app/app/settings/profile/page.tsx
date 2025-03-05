@@ -73,6 +73,10 @@ export default function ProfilePage() {
   const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [dbUser, setDbUser] = useState<DbUser | null>(null)
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState(''); 
+  const [skillLevel, setSkillLevel] = useState('');
+  const [learningObjectives, setLearningObjectives] = useState('');
   
   // Fetch user data directly from Supabase if auth context user is null
   useEffect(() => {
@@ -172,9 +176,13 @@ export default function ProfilePage() {
   // Reset form when user or dbUser changes
   useEffect(() => {
     if (user || (dbUser && (dbUser.first_name || dbUser.last_name))) {
-      getDefaultValues();
+      // Set our state variables with the loaded data
+      setFirstName(user?.firstName || dbUser?.first_name || "");
+      setLastName(user?.lastName || dbUser?.last_name || "");
+      setSkillLevel(user?.skillLevel || dbUser?.skill_level || "basic");
+      setLearningObjectives(user?.learningObjectives || dbUser?.learning_objectives || "");
       
-      // Force reset with specific values to ensure they're applied
+      // Also update form values for React Hook Form
       form.reset({
         firstName: user?.firstName || dbUser?.first_name || "",
         lastName: user?.lastName || dbUser?.last_name || "",
@@ -182,16 +190,33 @@ export default function ProfilePage() {
         skillLevel: (user?.skillLevel || dbUser?.skill_level || "basic") as "basic" | "intermediate" | "advanced" | "specialist",
         learningObjectives: user?.learningObjectives || dbUser?.learning_objectives || "",
       } as ProfileFormValues);
-      
-      // Manually set field values as a backup
-      if (dbUser?.first_name) {
-        form.setValue("firstName", dbUser.first_name);
-      }
-      if (dbUser?.last_name) {
-        form.setValue("lastName", dbUser.last_name);
-      }
     }
   }, [user, dbUser, form]);
+
+  // Connect form fields to our state variables
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    
+    switch (name) {
+      case "firstName":
+        setFirstName(value);
+        form.setValue("firstName", value);
+        break;
+      case "lastName":
+        setLastName(value);
+        form.setValue("lastName", value);
+        break;
+      case "learningObjectives":
+        setLearningObjectives(value);
+        form.setValue("learningObjectives", value);
+        break;
+    }
+  };
+  
+  const handleSelectChange = (value: string) => {
+    setSkillLevel(value);
+    form.setValue("skillLevel", value as any);
+  };
 
   const onSubmit = async (data: ProfileFormValues) => {
     setIsSubmitting(true);
@@ -253,6 +278,52 @@ export default function ProfilePage() {
     }
   }
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    
+    try {
+      // Get a fresh auth token before making the request
+      const supabase = createClientSupabase();
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        toast.error('You need to be logged in to update your profile');
+        setIsSubmitting(false);
+        return;
+      }
+      
+      // Include the auth token with the request
+      const response = await fetch('/api/profile/update', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          firstName,
+          lastName,
+          skillLevel,
+          learningObjectives,
+        }),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to update profile');
+      }
+      
+      toast.success('Profile updated successfully');
+      router.refresh();
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      toast.error('Failed to update profile. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <div className="space-y-8">
       <div>
@@ -262,7 +333,7 @@ export default function ProfilePage() {
         </p>
       </div>
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
             <FormField
               control={form.control}
@@ -271,7 +342,13 @@ export default function ProfilePage() {
                 <FormItem>
                   <FormLabel>First Name</FormLabel>
                   <FormControl>
-                    <Input placeholder="John" {...field} value={field.value || ""} />
+                    <Input 
+                      placeholder="John" 
+                      {...field} 
+                      value={firstName} 
+                      name="firstName"
+                      onChange={handleInputChange} 
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -284,7 +361,13 @@ export default function ProfilePage() {
                 <FormItem>
                   <FormLabel>Last Name</FormLabel>
                   <FormControl>
-                    <Input placeholder="Doe" {...field} value={field.value || ""} />
+                    <Input 
+                      placeholder="Doe" 
+                      {...field} 
+                      value={lastName} 
+                      name="lastName"
+                      onChange={handleInputChange} 
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -321,9 +404,8 @@ export default function ProfilePage() {
               <FormItem>
                 <FormLabel>AI Skill Level</FormLabel>
                 <Select 
-                  onValueChange={field.onChange} 
-                  defaultValue={field.value}
-                  value={field.value}
+                  onValueChange={handleSelectChange} 
+                  value={skillLevel}
                 >
                   <FormControl>
                     <SelectTrigger>
@@ -356,7 +438,9 @@ export default function ProfilePage() {
                     placeholder="What do you want to achieve with AI? What are your learning goals?"
                     className="resize-none min-h-[120px]"
                     {...field}
-                    value={field.value || ""}
+                    value={learningObjectives}
+                    name="learningObjectives"
+                    onChange={handleInputChange}
                   />
                 </FormControl>
                 <FormDescription>
