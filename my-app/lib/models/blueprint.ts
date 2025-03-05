@@ -115,17 +115,122 @@ export async function updateBlueprint(id: string, input: BlueprintUpdateInput): 
 }
 
 export async function regenerateBlueprint(id: string, prompt: string): Promise<Blueprint | null> {
-  // This would call an AI service to regenerate the blueprint
+  // Get the existing blueprint first
   const blueprint = await getBlueprintById(id);
   if (!blueprint) return null;
   
-  // Simulate AI generation with the LinkedIn scraper content as an example
-  return {
-    ...blueprint,
-    prompt,
-    content: getMockLinkedInScraperContent(),
-    updatedAt: new Date().toISOString(),
-  };
+  try {
+    // In a server component (Next.js route handler), we need a full URL
+    // Get the base URL from environment variables, falling back to localhost for development
+    const baseUrl = process.env.VERCEL_URL 
+      ? `https://${process.env.VERCEL_URL}` 
+      : process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
+    
+    const apiUrl = new URL('/api/research', baseUrl).toString();
+    
+    console.log("Calling research API at:", apiUrl);
+    
+    // Call the research API to generate content based on the prompt
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        prompt: `Create a detailed step-by-step implementation plan for the following AI workflow: ${prompt}. Include a brief summary, system architecture overview, required tools, and implementation steps.`,
+        detailed: true,
+      }),
+    });
+
+    if (!response.ok) {
+      // For non-OK responses, we need to check the response type before parsing JSON
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        const errorData = await response.json();
+        console.error("Research API error:", errorData);
+        throw new Error(errorData.error || `API returned ${response.status}: ${response.statusText}`);
+      } else {
+        // Handle HTML or other non-JSON responses
+        const text = await response.text();
+        console.error(`API returned ${response.status} with non-JSON response:`, text.substring(0, 200) + '...');
+        throw new Error(`API returned ${response.status}: ${response.statusText}`);
+      }
+    }
+
+    const data = await response.json();
+    console.log("Research API response:", data);
+
+    // Parse the content from the research result
+    // This is a simple markdown to ContentItem[] parser
+    const content = parseMarkdownToContentItems(data.content);
+
+    // Update the blueprint with the new content
+    return {
+      ...blueprint,
+      prompt,
+      content,
+      updatedAt: new Date().toISOString(),
+    };
+  } catch (error) {
+    console.error("Error regenerating blueprint:", error);
+    // If the API call fails, return the existing blueprint with a status update
+    return {
+      ...blueprint,
+      status: 'failed',
+      updatedAt: new Date().toISOString(),
+    };
+  }
+}
+
+// Simple markdown parser that converts markdown text to ContentItem[]
+function parseMarkdownToContentItems(markdown: string): ContentItem[] {
+  const lines = markdown.split('\n');
+  const contentItems: ContentItem[] = [];
+  let currentList: string[] = [];
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    
+    // Skip empty lines
+    if (!line) continue;
+    
+    // Check for headings
+    if (line.startsWith('# ')) {
+      if (currentList.length > 0) {
+        contentItems.push({ type: 'list', items: [...currentList] });
+        currentList = [];
+      }
+      contentItems.push({ type: 'heading', content: line.substring(2) });
+    } 
+    // Check for h2 headings
+    else if (line.startsWith('## ')) {
+      if (currentList.length > 0) {
+        contentItems.push({ type: 'list', items: [...currentList] });
+        currentList = [];
+      }
+      contentItems.push({ type: 'heading', content: line.substring(3) });
+    } 
+    // Check for list items
+    else if (line.startsWith('- ') || line.startsWith('* ') || /^\d+\.\s/.test(line)) {
+      const itemContent = line.replace(/^-\s|\*\s|\d+\.\s/, '');
+      currentList.push(itemContent);
+    } 
+    // Everything else is a paragraph
+    else {
+      if (currentList.length > 0) {
+        contentItems.push({ type: 'list', items: [...currentList] });
+        currentList = [];
+      }
+      contentItems.push({ type: 'paragraph', content: line });
+    }
+  }
+  
+  // Don't forget to add the last list if it exists
+  if (currentList.length > 0) {
+    contentItems.push({ type: 'list', items: [...currentList] });
+  }
+  
+  return contentItems;
 }
 
 function getMockLinkedInScraperContent(): ContentItem[] {
