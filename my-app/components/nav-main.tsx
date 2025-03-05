@@ -1,6 +1,8 @@
 "use client"
 
 import { ChevronRight, type LucideIcon } from "lucide-react"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
 
 import {
   Collapsible,
@@ -32,6 +34,13 @@ export function NavMain({
 }: {
   items: NavItem[]
 }) {
+  const router = useRouter();
+  
+  const handleNavigation = (url: string) => {
+    console.log("Navigating to:", url);
+    router.push(url);
+  };
+
   return (
     <SidebarGroup>
       <SidebarGroupLabel>Platform</SidebarGroupLabel>
@@ -44,11 +53,15 @@ export function NavMain({
           if (!hasSubItems) {
             return (
               <SidebarMenuItem key={item.title}>
-                <SidebarMenuButton tooltip={item.title} asChild>
-                  <a href={item.url}>
+                <SidebarMenuButton 
+                  tooltip={item.title} 
+                  asChild
+                  onClick={() => handleNavigation(item.url)}
+                >
+                  <Link href={item.url}>
                     {item.icon && <item.icon />}
                     <span>{item.title}</span>
-                  </a>
+                  </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             );
@@ -64,7 +77,16 @@ export function NavMain({
             >
               <SidebarMenuItem>
                 <CollapsibleTrigger asChild>
-                  <SidebarMenuButton tooltip={item.title}>
+                  <SidebarMenuButton 
+                    tooltip={item.title}
+                    onClick={() => {
+                      // If the parent menu item also has a URL, navigate to it
+                      if (item.url && item.url !== "#") {
+                        console.log("Navigating to parent menu:", item.url);
+                        router.push(item.url);
+                      }
+                    }}
+                  >
                     {item.icon && <item.icon />}
                     <span>{item.title}</span>
                     <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
@@ -74,10 +96,13 @@ export function NavMain({
                   <SidebarMenuSub>
                     {item.items?.map((subItem) => (
                       <SidebarMenuSubItem key={subItem.title}>
-                        <SidebarMenuSubButton asChild>
-                          <a href={subItem.url}>
+                        <SidebarMenuSubButton 
+                          asChild
+                          onClick={() => handleNavigation(subItem.url)}
+                        >
+                          <Link href={subItem.url}>
                             <span>{subItem.title}</span>
-                          </a>
+                          </Link>
                         </SidebarMenuSubButton>
                       </SidebarMenuSubItem>
                     ))}

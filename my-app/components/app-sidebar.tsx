@@ -59,11 +59,11 @@ const data = {
       items: [
         {
           title: "Create Blueprint",
-          url: "#",
+          url: "/blueprints",
         },
         {
           title: "My Blueprints",
-          url: "#",
+          url: "/blueprints",
         },
       ],
     },

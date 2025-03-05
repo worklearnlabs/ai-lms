@@ -1,8 +1,9 @@
 import Link from "next/link"
 import { Blueprint } from "@/lib/models/blueprint"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { ArrowUpRight } from "lucide-react"
+import { ArrowUpRight, Check, GitFork } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
+import { Badge } from "@/components/ui/badge"
 
 interface BlueprintCardProps {
   blueprint: Blueprint
@@ -44,19 +45,27 @@ export default function BlueprintCard({ blueprint }: BlueprintCardProps) {
     <Link href={`/blueprints/${id}`} className="block transition-transform hover:-translate-y-1">
       <Card className="h-full flex flex-col border hover:shadow-md transition-shadow">
         <CardHeader className="pb-2">
-          <CardTitle className="text-lg font-semibold">{title}</CardTitle>
+          <div className="flex items-center gap-1.5">
+            <CardTitle className="text-lg font-semibold">{title}</CardTitle>
+            {isVerified && (
+              <div className="flex-shrink-0 rounded-full bg-emerald-100 dark:bg-emerald-900/30 p-1 flex items-center justify-center">
+                <Check className="h-3 w-3 text-emerald-600 dark:text-emerald-400 stroke-[2.5]" />
+              </div>
+            )}
+          </div>
           <CardDescription className="line-clamp-2">{details}</CardDescription>
         </CardHeader>
         <CardContent className="flex-1">
-          <div className="flex items-center space-x-1 text-xs text-muted-foreground mb-2">
-            <span>{stepsCount} Steps</span>
-            <span>•</span>
-            <span>{isVerified ? "Verified" : "Unverified"}</span>
-            {cloneCount && (
-              <>
-                <span>•</span>
-                <span>{cloneCount} Clones</span>
-              </>
+          <div className="flex items-center space-x-2 text-xs">
+            <Badge variant="outline" className="text-xs px-2 py-0">
+              {stepsCount} Steps
+            </Badge>
+            
+            {cloneCount !== undefined && cloneCount > 0 && (
+              <Badge variant="secondary" className="text-xs px-2 py-0 flex items-center">
+                <GitFork className="h-3 w-3 mr-1" />
+                {cloneCount} {cloneCount === 1 ? "Clone" : "Clones"}
+              </Badge>
             )}
           </div>
         </CardContent>
