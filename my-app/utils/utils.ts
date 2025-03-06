@@ -27,4 +27,4 @@ export function formatRelativeDate(dateString: string): string {
     const months = Math.floor(diffInDays / 30);
     return `${months} ${months === 1 ? 'month' : 'months'} ago`;
   }
-}
+} 

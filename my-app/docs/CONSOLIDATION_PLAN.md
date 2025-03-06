@@ -26,14 +26,14 @@ This document outlines the plan for consolidating the project structure to reduc
 
 - [x] Merge dependencies from root package.json into my-app/package.json
 - [x] Update version numbers to the latest where appropriate
-- [ ] Consider removing the root package.json once all files are moved
+- [x] Consider removing the root package.json once all files are moved
 
-### 3. Directory Structure Consolidation (In Progress)
+### 3. Directory Structure Consolidation ✅
 
 - [x] Move and merge files from `/my-app/lib` and `/my-app/src/lib` into `/my-app/utils`
 - [x] Reorganize components into logical groupings under `/my-app/components`
 - [x] Ensure API endpoints are grouped by feature under `/my-app/app/api/`
-- [ ] Update import paths throughout the codebase to match new structure
+- [x] Update import paths throughout the codebase to match new structure
 
 ### 4. Configuration Files Consolidation (To Do)
 

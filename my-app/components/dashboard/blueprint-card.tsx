@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { Blueprint } from "@/lib/models/blueprint"
+import { Blueprint } from "@/utils/models"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { ArrowUpRight, Check, GitFork } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"

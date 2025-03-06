@@ -12,7 +12,7 @@ import { DashboardContent } from "@/components/dashboard/dashboard-content"
 import { PageBreadcrumb } from "@/components/layouts/page-breadcrumb"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { BlueprintModalProvider } from "@/app/blueprints/components/blueprint-modal-context"
-import { getDashboardData, DashboardData } from "@/lib/dashboard/dashboard-service"
+import { getDashboardData, DashboardData } from "@/utils/dashboard/dashboard-service"
 import { Skeleton } from "@/components/ui/skeleton"
 
 export default function Page() {
