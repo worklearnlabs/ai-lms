@@ -4,9 +4,14 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { BlueprintsSection } from "@/components/dashboard/blueprints-section"
 import { CreateBlueprintButton } from "./components/create-blueprint-button"
-import { getBlueprints, Blueprint } from "@/lib/models/blueprint"
+import { getBlueprints, Blueprint } from "@/utils/models"
 import { Skeleton } from "@/components/ui/skeleton"
-import { formatRelativeDate } from "@/lib/utils"
+import { formatRelativeTime } from "@/utils/misc"
+
+// Create a wrapper function to handle string dates
+function formatRelativeDate(dateString: string): string {
+  return formatRelativeTime(new Date(dateString));
+}
 
 export default function BlueprintsPage() {
   const [blueprints, setBlueprints] = useState<Blueprint[]>([])

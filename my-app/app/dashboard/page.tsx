@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { AppSidebar } from "@/components/app-sidebar"
+import { AppSidebar } from "@/components/layouts/app-sidebar"
 import { Separator } from "@/components/ui/separator"
 import {
   SidebarInset,
@@ -9,7 +9,7 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar"
 import { DashboardContent } from "@/components/dashboard/dashboard-content"
-import { PageBreadcrumb } from "@/components/page-breadcrumb"
+import { PageBreadcrumb } from "@/components/layouts/page-breadcrumb"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { BlueprintModalProvider } from "@/app/blueprints/components/blueprint-modal-context"
 import { getDashboardData, DashboardData } from "@/lib/dashboard/dashboard-service"

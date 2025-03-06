@@ -1,11 +1,21 @@
 "use client";
 
-import { GalleryVerticalEnd } from "lucide-react";
-import { RegisterForm } from "@/components/forms/register-form";
-import { ThemeToggle } from "@/components/theme-toggle";
-import Link from "next/link";
+import { GalleryVerticalEnd } from "lucide-react"
+import { LoginForm } from "@/components/forms/login-form"
+import { ThemeToggle } from "@/components/theme-toggle"
+import Link from "next/link"
+import { useEffect } from "react"
+import { deleteCookie } from "cookies-next"
 
-export default function RegisterPage() {
+export default function LoginPage() {
+  // Clear auth cookie on client side when the login page loads
+  useEffect(() => {
+    // Remove any existing auth cookie to ensure user starts unauthenticated
+    deleteCookie('auth', { path: '/' });
+    // Also clear localStorage
+    localStorage.removeItem("user");
+  }, []);
+
   return (
     <div className="bg-background flex min-h-svh flex-col items-center justify-center gap-6 p-6 md:p-10">
       <div className="absolute top-4 right-4">
@@ -18,8 +28,8 @@ export default function RegisterPage() {
           </div>
           Adaptive Learning System
         </Link>
-        <RegisterForm />
+        <LoginForm />
       </div>
     </div>
-  );
+  )
 } 

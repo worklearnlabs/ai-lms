@@ -1,7 +1,7 @@
 import "./globals.css"
 import type { Metadata } from "next"
 import { Inter } from "next/font/google"
-import { AuthProvider } from "@/src/lib/auth/auth-provider"
+import { AuthProvider } from "@/context/auth-context"
 import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/sonner"
 import Script from "next/script"

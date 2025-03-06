@@ -1,6 +1,6 @@
 "use client";
 
-import { LoginForm } from "@/components/login-form";
+import { LoginForm } from "@/components/forms/login-form";
 import { GalleryVerticalEnd } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useEffect } from "react";

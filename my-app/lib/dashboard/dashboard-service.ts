@@ -1,5 +1,10 @@
-import { getBlueprints } from "../models/blueprint";
-import { formatRelativeDate } from "../utils";
+import { getBlueprints } from "@/utils/models";
+import { formatRelativeTime } from "@/utils/misc";
+
+// Create a wrapper function to handle string dates
+function formatRelativeDate(dateString: string): string {
+  return formatRelativeTime(new Date(dateString));
+}
 
 // Types for dashboard data
 export interface DashboardData {

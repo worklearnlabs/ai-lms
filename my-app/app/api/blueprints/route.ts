@@ -1,14 +1,17 @@
 import { NextResponse } from "next/server";
-import { createBlueprint, getBlueprints } from "@/lib/models/blueprint";
+import { createBlueprint, getBlueprints } from "@/utils/models";
+import { generateWithFallback } from "@/utils/ai-orchestrator";
 
 // Handler for GET /api/blueprints
 export async function GET() {
   try {
-    // In a real application, we would get the user ID from the session
+    // Use mock user ID for now
     const userId = "user-1";
-    const blueprints = await getBlueprints(userId);
     
-    return NextResponse.json({ blueprints });
+    // Get blueprints using the utility function
+    const userBlueprints = await getBlueprints(userId);
+    
+    return NextResponse.json({ blueprints: userBlueprints });
   } catch (error) {
     console.error("Error fetching blueprints:", error);
     return NextResponse.json(
@@ -21,23 +24,46 @@ export async function GET() {
 // Handler for POST /api/blueprints
 export async function POST(request: Request) {
   try {
+    // Get request data
     const data = await request.json();
     
     // Basic validation
-    if (!data.title || !data.prompt) {
+    if (!data.title) {
       return NextResponse.json(
-        { error: "Title and prompt are required" },
+        { error: "Title is required" },
         { status: 400 }
       );
     }
     
-    // In a real application, we would get the user ID from the session
+    // Use mock user ID for now
     const userId = "user-1";
     
-    // Create the blueprint
+    // Generate AI blueprint if objectives are provided
+    let generatedContent = null;
+    
+    if (data.objectives && Array.isArray(data.objectives)) {
+      try {
+        // Use AI to generate blueprint content
+        const aiPrompt = `Generate a detailed learning blueprint for: ${data.title}. 
+         Description: ${data.description || ""}
+         Objectives: ${data.objectives.join(", ")}
+         User skill level: beginner`;
+        
+        const aiResponse = await generateWithFallback(aiPrompt, { detailed: true });
+        
+        if (aiResponse && aiResponse.content) {
+          generatedContent = aiResponse.content;
+        }
+      } catch (aiError) {
+        console.error("AI generation error:", aiError);
+        // Continue without AI generation
+      }
+    }
+    
+    // Create the blueprint using the utility function
     const blueprint = await createBlueprint({
       title: data.title,
-      prompt: data.prompt,
+      prompt: data.prompt || (generatedContent ? generatedContent : ""),
       userId,
     });
     

@@ -1,13 +1,13 @@
 "use client"
 
-import { AppSidebar } from "@/components/app-sidebar"
+import { AppSidebar } from "@/components/layouts/app-sidebar"
 import { Separator } from "@/components/ui/separator"
 import {
   SidebarInset,
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar"
-import { PageBreadcrumb } from "@/components/page-breadcrumb"
+import { PageBreadcrumb } from "@/components/layouts/page-breadcrumb"
 import { ThemeToggle } from "@/components/theme-toggle"
 
 export default function BlueprintsLayout({

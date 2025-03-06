@@ -1,4 +1,4 @@
-import { createClientSupabase } from "@/src/lib/supabase/client";
+import { createClientSupabase } from "@/utils/supabase";
 import { NextResponse } from 'next/server';
 
 // Define user profile database fields

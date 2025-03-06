@@ -3,7 +3,7 @@ import {
   getBlueprintById, 
   updateBlueprint, 
   regenerateBlueprint 
-} from "@/lib/models/blueprint";
+} from "@/utils/models";
 
 interface RouteParams {
   params: {

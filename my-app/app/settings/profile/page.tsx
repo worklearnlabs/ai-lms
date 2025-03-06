@@ -26,8 +26,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { useAuth } from "@/src/lib/auth/auth-provider"
-import { createClientSupabase } from "@/src/lib/supabase/client"
+import { useAuth } from "@/context/auth-context"
+import { createClientSupabase } from "@/utils/supabase"
 
 // Define a type for the database user format
 interface DbUser {

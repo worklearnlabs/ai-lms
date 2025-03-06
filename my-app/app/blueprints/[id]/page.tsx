@@ -1,7 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CheckCircle2 } from "lucide-react";
-import { getBlueprintById } from "@/lib/models/blueprint";
+import { getBlueprintById } from "@/utils/models";
 import BlueprintContent from "./components/blueprint-content";
 import BlueprintSidebar from "./components/blueprint-sidebar";
 import { ContentItem } from "./types";
