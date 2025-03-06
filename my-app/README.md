@@ -109,4 +109,5 @@ The following documentation is available to help developers understand and work 
 
 ## License
 
-MIT
+PRIVATE - This project is proprietary and confidential.
+Not for distribution or use without express permission.
