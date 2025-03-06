@@ -9,6 +9,7 @@ import { toast } from "sonner"
 interface AuthContextType {
   user: User | null
   isLoading: boolean
+  authError: string | null
   signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string }>
   signUp: (email: string, password: string, fullName: string) => Promise<{ 
     success: boolean; 
@@ -81,6 +82,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               const minimalUser: User = {
                 id: session.user.id,
                 email: session.user.email || '',
+                full_name: session.user.user_metadata?.full_name || 'User',
                 role: 'user',
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
@@ -89,13 +91,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               
               // Try to create the user profile
               try {
-                const { error: insertError } = await supabase.from('users').insert({
+                // Fetch the users schema first to see column names
+                const { error: schemaError, data: schemaData } = await supabase
+                  .from('users')
+                  .select('*')
+                  .limit(1);
+                  
+                if (schemaError) {
+                  console.warn("Error fetching schema:", schemaError);
+                }
+                
+                if (isDev && schemaData) {
+                  console.log("User schema sample:", schemaData);
+                }
+                
+                // Create user with minimal required fields
+                const userData = {
                   id: session.user.id,
                   email: session.user.email,
                   role: 'user',
                   created_at: new Date().toISOString(),
                   updated_at: new Date().toISOString(),
-                })
+                };
+                
+                const { error: insertError } = await supabase
+                  .from('users')
+                  .insert(userData);
                 
                 if (insertError && isDev) {
                   console.warn("Error creating user profile:", insertError);
@@ -114,6 +135,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const minimalUser: User = {
               id: session.user.id,
               email: session.user.email || '',
+              full_name: session.user.user_metadata?.full_name || 'User',
               role: 'user',
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
@@ -153,6 +175,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               const minimalUser: User = {
                 id: session.user.id,
                 email: session.user.email || '',
+                full_name: session.user.user_metadata?.full_name || 'User',
                 role: 'user',
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
@@ -224,6 +247,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const minimalUser: User = {
               id: data.user.id,
               email: data.user.email || '',
+              full_name: data.user.user_metadata?.full_name || 'User',
               role: 'user',
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
@@ -235,6 +259,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               await supabase.from('users').insert({
                 id: data.user.id,
                 email: data.user.email,
+                full_name: data.user.user_metadata?.full_name || 'User',
                 role: 'user',
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
@@ -251,6 +276,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const minimalUser: User = {
             id: data.user.id,
             email: data.user.email || '',
+            full_name: data.user.user_metadata?.full_name || 'User',
             role: 'user',
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
@@ -380,7 +406,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signOut, 
       signUp, 
       refreshUser,
-      updateUserProfile
+      updateUserProfile,
+      authError
     }}>
       {children}
     </AuthContext.Provider>

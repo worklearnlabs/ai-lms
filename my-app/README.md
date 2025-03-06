@@ -1,6 +1,12 @@
-# AI-Powered Learning Management System
+# Adaptive Learning System
 
-This is an adaptive learning management system powered by AI. It uses Next.js, Supabase, Drizzle ORM, and various AI APIs to provide personalized learning experiences.
+## Project Overview
+
+The Adaptive Learning System is a web-based platform built for AI enthusiasts and professionals who want to learn and master AI through hands-on implementation. It simplifies daily learning operations by providing personalized AI workflow blueprints, step-by-step implementation guides, and actionable insights to help users advance their careers or grow their businesses. By blending human validation with automated processes, the platform ensures users not only execute AI projects efficiently but also learn from every implementation with measurable progress.
+
+This project uses Next.js, Supabase, Drizzle ORM, and various AI APIs to provide personalized learning experiences.
+
+[View detailed project requirements](./REQUIREMENTS.md)
 
 ## Project Structure
 
@@ -40,6 +46,9 @@ This is an adaptive learning management system powered by AI. It uses Next.js, S
 - **Authentication**: User registration, login, and profile management via Supabase Auth
 - **AI-Powered Research**: Sequential AI processing using OpenAI and Perplexity API
 - **Blueprints**: Templates for creating learning pathways
+- **Adaptive Learning**: Personalized learning paths based on user skill levels and goals
+- **Dashboard**: Central hub for managing blueprints, courses, and tracking progress
+- **Community Hub**: Discussion boards and collaborative spaces for blueprint sharing
 - **Edge Functions**: API routes use Vercel Edge Functions for optimal performance
 - **Validation**: All API inputs are validated using Zod schemas
 
@@ -89,6 +98,14 @@ npm run db:generate
 - `/api/ai/research`: AI-powered research using sequential OpenAI and Perplexity processing
 - `/api/blueprints`: CRUD operations for learning blueprints
 - `/api/auth`: Authentication endpoints
+
+## Documentation
+
+The following documentation is available to help developers understand and work with the Adaptive Learning System:
+
+- [Project Requirements](./REQUIREMENTS.md) - Comprehensive overview of the project requirements
+- [Supabase Integration Guide](./docs/supabase_integration_guide.md) - Guidelines for using Supabase
+- [AI Orchestration](./docs/ai_orchestration.md) - How the AI integration works
 
 ## License
 

@@ -1,5 +1,5 @@
 import "./globals.css"
-import type { Metadata } from "next"
+import type { Metadata, Viewport } from "next"
 import { Inter } from "next/font/google"
 import { AuthProvider } from "@/context/auth-context"
 import { ThemeProvider } from "@/components/theme-provider"
@@ -11,6 +11,9 @@ const inter = Inter({ subsets: ["latin"] })
 export const metadata: Metadata = {
   title: "Adaptive Learning System",
   description: "A personalized learning platform",
+}
+
+export const viewport: Viewport = {
   colorScheme: "dark light",
 }
 
