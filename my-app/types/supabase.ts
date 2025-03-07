@@ -13,7 +13,8 @@ export interface Database {
         Row: {
           id: string
           email: string
-          full_name: string | null
+          first_name: string | null
+          last_name: string | null
           phone: string | null
           skill_level: string | null
           experience: string | null
@@ -26,7 +27,8 @@ export interface Database {
         Insert: {
           id: string
           email: string
-          full_name?: string | null
+          first_name?: string | null
+          last_name?: string | null
           phone?: string | null
           skill_level?: string | null
           experience?: string | null
@@ -39,7 +41,8 @@ export interface Database {
         Update: {
           id?: string
           email?: string
-          full_name?: string | null
+          first_name?: string | null
+          last_name?: string | null
           phone?: string | null
           skill_level?: string | null
           experience?: string | null

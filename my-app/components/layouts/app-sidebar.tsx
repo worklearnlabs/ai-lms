@@ -174,15 +174,77 @@ const data = {
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { user } = useAuth();
   
-  // Create a user object for NavUser component
+  // Debug log to help diagnose user data issues
+  // DO NOT REMOVE: This helps identify what properties are available
+  console.log("Full user object:", user);
+  
+  /**
+   * SMART NAME FORMATTING FUNCTION
+   *
+   * This function handles multiple scenarios for displaying user names based on
+   * available data. It's designed to gracefully handle incomplete or missing data.
+   *
+   * Problem: When the database has issues, user data may be incomplete.
+   * Solution: This function provides multiple fallback strategies to ensure
+   * something user-friendly always displays.
+   */
+  const getDisplayName = (user: { 
+    first_name?: string | null; 
+    last_name?: string | null; 
+    email?: string;
+  } | null): string => {
+    // Safety check - user might be null during auth state changes
+    if (!user) return "Guest";
+    
+    // SCENARIO 1: Generic placeholder detected
+    // If first_name is the generic "User" placeholder and last_name is empty,
+    // extract a nicer name from the email address instead
+    if (user.first_name === "User" && (!user.last_name || user.last_name === "")) {
+      // Use email to create a personalized name if available
+      if (user.email) {
+        // Extract username portion (before @)
+        const username = user.email.split('@')[0];
+        
+        // Format the username by:
+        // 1. Splitting by common separators (., _, -)
+        // 2. Capitalizing each part
+        // 3. Joining with spaces for readability
+        const nameParts = username.split(/[._-]/);
+        const formattedParts = nameParts.map((part: string) => 
+          part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
+        );
+        
+        return formattedParts.join(' ');
+      }
+    }
+    
+    // SCENARIO 2: Complete name available
+    // This is the ideal case - use both first and last name
+    if (user.first_name && user.last_name) {
+      return `${user.first_name} ${user.last_name}`;
+    }
+    
+    // SCENARIO 3: Partial name available
+    // If only one name component exists, use that
+    if (user.first_name) return user.first_name;
+    if (user.last_name) return user.last_name;
+    
+    // SCENARIO 4: Last resort fallback
+    // If we have no name data at all, extract from email or use "User"
+    return user.email?.split('@')[0] || "User";
+  };
+  
+  // Prepare user data for the navigation component
+  // IMPORTANT: Always provide fallbacks for all properties to prevent UI errors
   const userForNav = user ? {
-    name: user.email, // Simplified to match our auth structure
+    name: getDisplayName(user),
     email: user.email,
-    avatar: "/avatars/shadcn.jpg", // Default avatar path
+    // The avatar path was causing 404 errors - using empty string triggers the fallback
+    avatar: "", // DO NOT use "/avatars/shadcn.jpg" - file doesn't exist
   } : {
     name: "Guest",
     email: "guest@example.com",
-    avatar: "/avatars/shadcn.jpg",
+    avatar: "", 
   };
 
   return (

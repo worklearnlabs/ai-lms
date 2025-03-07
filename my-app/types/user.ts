@@ -1,7 +1,8 @@
 export interface User {
   id: string;
   email: string;
-  full_name?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
   phone?: string | null;
   skill_level?: string | null;
   experience?: string | null;
@@ -24,7 +25,8 @@ export interface UserProfile extends Omit<User, 'id' | 'email' | 'created_at' | 
 }
 
 export interface UserUpdateInput extends Partial<UserProfile> {
-  full_name?: string;
+  first_name?: string;
+  last_name?: string;
   phone?: string;
   skill_level?: string;
   experience?: string;

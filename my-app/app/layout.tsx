@@ -5,8 +5,17 @@ import { AuthProvider } from "@/context/auth-context"
 import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/sonner"
 import Script from "next/script"
+import { debugUserData, updateUserName, refreshUserData, syncUserAccount } from '@/utils/auth'
 
 const inter = Inter({ subsets: ["latin"] })
+
+// Define type for the extended window object
+interface ExtendedWindow extends Window {
+  debugUserData?: typeof debugUserData;
+  updateUserName?: typeof updateUserName;
+  refreshUserData?: typeof refreshUserData;
+  syncUserAccount?: typeof syncUserAccount;
+}
 
 export const metadata: Metadata = {
   title: "Adaptive Learning System",
@@ -22,6 +31,13 @@ export default function RootLayout({
 }: {
   children: React.ReactNode
 }) {
+  if (typeof window !== 'undefined') {
+    (window as ExtendedWindow).debugUserData = debugUserData;
+    (window as ExtendedWindow).updateUserName = updateUserName;
+    (window as ExtendedWindow).refreshUserData = refreshUserData;
+    (window as ExtendedWindow).syncUserAccount = syncUserAccount;
+  }
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head />

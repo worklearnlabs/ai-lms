@@ -4,7 +4,8 @@ import { relations } from "drizzle-orm";
 // Users table
 export const users = pgTable("users", {
   id: uuid("id").primaryKey(),
-  fullName: text("full_name"),
+  firstName: text("first_name"),
+  lastName: text("last_name"),
   phone: varchar("phone", { length: 256 }),
   email: varchar("email", { length: 256 }).notNull().unique(),
   role: varchar("role", { length: 50 }).default("user").notNull(),
