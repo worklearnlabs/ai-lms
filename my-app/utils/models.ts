@@ -247,6 +247,85 @@ function getMockLinkedInScraperContent(): ContentItem[] {
       type: "heading",
       content: "System Architecture Overview"
     },
-    // More content items would go here
+    {
+      type: "step",
+      step: {
+        number: 1,
+        title: "Set Up LinkedIn Developer Account",
+        estimatedTime: "30 minutes",
+        instructions: [
+          "Visit LinkedIn Developer Portal and create a new account",
+          "Generate API keys for authenticated access",
+          "Store credentials securely in environment variables",
+          "Test API access using the LinkedIn API Explorer tool"
+        ],
+        toolTags: ["LinkedIn API", "Authentication"],
+        completed: true
+      }
+    },
+    {
+      type: "step",
+      step: {
+        number: 2,
+        title: "Create Search Query Function",
+        estimatedTime: "45 minutes",
+        instructions: [
+          "Implement a function to search LinkedIn posts with specified keywords",
+          "Set time filter to retrieve only posts from the last 24 hours",
+          "Add pagination to handle potentially large result sets",
+          "Include error handling for rate limiting and API downtime"
+        ],
+        toolTags: ["Node.js", "API Integration"],
+        completed: false
+      }
+    },
+    {
+      type: "step",
+      step: {
+        number: 3,
+        title: "Build Data Extraction Pipeline",
+        estimatedTime: "1 hour",
+        instructions: [
+          "Extract username, profile information, and post timestamp",
+          "Parse engagement metrics (likes, comments, shares)",
+          "Capture image URLs if present in the post",
+          "Structure data in a consistent JSON format for processing"
+        ],
+        toolTags: ["Data Processing", "JSON"],
+        completed: false
+      }
+    },
+    {
+      type: "step",
+      step: {
+        number: 4,
+        title: "Implement AI Summarization",
+        estimatedTime: "1.5 hours",
+        instructions: [
+          "Set up OpenAI API integration using GPT-4",
+          "Create a summarization prompt template that extracts key insights",
+          "Process each post individually to generate summaries",
+          "Add sentiment analysis to detect post emotional tone"
+        ],
+        toolTags: ["OpenAI", "NLP", "AI"],
+        completed: false
+      }
+    },
+    {
+      type: "step",
+      step: {
+        number: 5,
+        title: "Automate Google Doc Creation",
+        estimatedTime: "1 hour",
+        instructions: [
+          "Set up Google Drive API authentication",
+          "Create a document template with proper formatting",
+          "Implement daily document generation with date-based naming",
+          "Add table of contents and metadata section"
+        ],
+        toolTags: ["Google Drive API", "Automation"],
+        completed: false
+      }
+    }
   ];
 } 

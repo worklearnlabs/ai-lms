@@ -344,10 +344,11 @@ This comprehensive Blueprint Creation Flow Implementation Document details every
 ### 1.1 Create Blueprint Modal
 
 - [ ] **Design & Build Modal UI:**
-  - [ ] Create a modal component that opens on clicking “Create Blueprint”.
-  - [ ] Include a large text area labeled “What do you want to do with AI?”.
-  - [ ] Design a chat-like area inside the modal for the multi-turn reasoning Q&A.
-  - [ ] Add navigation buttons: “Continue”, “Back”, “Confirm”, and “Cancel”.
+  - [x] Create a modal component that opens on clicking “Create Blueprint”.
+  - [x] Include a large text area labeled “What do you want to do with AI?”.
+  - [x] Design a chat-like area inside the modal for the multi-turn reasoning Q&A.
+  - [x] Add navigation buttons: “Continue”, “Back”, “Confirm”, and “Cancel”.
+  - [ ] Where do we store the follow-up questions?
 - [ ] **Integrate Reasoning Agent API:**
   - [ ] Hook up the modal to call `POST /api/blueprints/reason` with the user’s prompt and conversation context.
   - [ ] Display the agent’s follow-up questions and allow user responses.

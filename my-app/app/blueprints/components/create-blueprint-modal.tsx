@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import { toast } from "sonner"
 import { ArrowRight, ArrowLeft } from "lucide-react"
 
@@ -15,14 +15,47 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { cn } from "@/utils/utils"
 
 interface CreateBlueprintModalProps {
   triggerButton?: React.ReactNode;
   isOpen?: boolean;
   onOpenChange?: (open: boolean) => void;
+}
+
+// Question status type
+type QuestionStatusMap = {
+  [key: number]: "pending" | "complete";
+};
+
+// Reusable scroll-aware container component that hides the fade effect when at the bottom
+function ScrollContainer({ children, className }: { children: React.ReactNode; className?: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [showFade, setShowFade] = useState(true);
+  
+  // Check scroll position and update fade visibility
+  const handleScroll = () => {
+    if (containerRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
+      // Hide fade when we're near the bottom (within 20px)
+      setShowFade(scrollHeight - scrollTop - clientHeight > 20);
+    }
+  };
+  
+  return (
+    <div className="relative flex-1 overflow-hidden">
+      <div 
+        ref={containerRef}
+        className={cn("absolute inset-0 overflow-y-auto space-y-4 pb-8", className)}
+        onScroll={handleScroll}
+      >
+        {children}
+      </div>
+      {showFade && (
+        <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-background to-transparent pointer-events-none"></div>
+      )}
+    </div>
+  );
 }
 
 export function CreateBlueprintModal({ 
@@ -32,20 +65,78 @@ export function CreateBlueprintModal({
 }: CreateBlueprintModalProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [internalIsOpen, setInternalIsOpen] = useState(false)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [title, setTitle] = useState("")
   const [prompt, setPrompt] = useState("")
-  const [currentStep, setCurrentStep] = useState<'prompt' | 'conversation' | 'review'>('prompt')
-  const [conversation, setConversation] = useState<{role: 'user' | 'assistant', content: string}[]>([])
+  const [currentStep, setCurrentStep] = useState<'prompt' | 'conversation'>('prompt')
+  const [activeQuestionIndex, setActiveQuestionIndex] = useState(0)
+  const [conversation, setConversation] = useState<{role: 'user' | 'assistant', content: string, questionId?: number}[]>([])
+  const [currentResponse, setCurrentResponse] = useState("")
   
-  // Sample conversation for demo purposes
-  const demoConversation = [
-    { role: 'assistant' as const, content: 'Can you tell me more about what specific LinkedIn data you want to analyze?' },
-    { role: 'user' as const, content: 'I want to track posts about AI and machine learning from VCs and tech leaders.' },
-    { role: 'assistant' as const, content: 'How frequently would you like to collect this data? Daily, weekly, or on-demand?' },
-    { role: 'user' as const, content: 'Daily would be ideal, with a summary report.' },
-    { role: 'assistant' as const, content: 'Would you prefer the summary to focus on sentiment analysis, topic extraction, or both?' },
+  // Sample questions for the Clarify Details step
+  const questions = [
+    {
+      id: 1,
+      title: "Define your audience",
+      content: "Can you tell me more about who will be using this LinkedIn content analyzer? Are they marketers, sales professionals, or executives?",
+      status: "pending" // This will be updated to "complete" once answered
+    },
+    {
+      id: 2,
+      title: "Data collection frequency",
+      content: "How frequently would you like to collect data from LinkedIn? Daily, weekly, or on-demand?",
+      status: "pending"
+    },
+    {
+      id: 3,
+      title: "Analysis focus",
+      content: "What specific metrics and insights would be most valuable to you? Engagement rates, sentiment analysis, topic trends, or something else?",
+      status: "pending"
+    },
+    {
+      id: 4,
+      title: "Output format",
+      content: "How would you like the results presented? As a dashboard, PDF report, email summary, or in another format?",
+      status: "pending"
+    }
   ]
+  
+  // Track question status - initialize with all questions as pending
+  const [questionStatus, setQuestionStatus] = useState<QuestionStatusMap>(
+    questions.reduce((acc, q) => ({...acc, [q.id]: "pending"}), {})
+  );
 
+  // Save current question response when selecting a new question
+  useEffect(() => {
+    // Skip on first render or when response is empty
+    if (conversation.length === 0 || !currentResponse.trim()) return;
+    
+    // Get the previously active question
+    const prevQuestion = questions.find((q, i) => i === activeQuestionIndex);
+    if (!prevQuestion) return;
+    
+    // Save response and mark as complete
+    const saveResponse = () => {
+      // Add the response to conversation
+      setConversation(prev => [
+        ...prev,
+        { role: 'assistant', content: prevQuestion.content, questionId: prevQuestion.id },
+        { role: 'user', content: currentResponse, questionId: prevQuestion.id }
+      ]);
+      
+      // Mark as complete
+      setQuestionStatus(prev => ({
+        ...prev,
+        [prevQuestion.id]: "complete"
+      }));
+      
+      // Clear the response field
+      setCurrentResponse("");
+    };
+    
+    saveResponse();
+  }, [activeQuestionIndex]); // This will run when activeQuestionIndex changes
+  
   // Example blueprints with difficulty levels
   const examples = [
     {
@@ -80,90 +171,103 @@ export function CreateBlueprintModal({
     : setInternalIsOpen
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+    e.preventDefault();
     
-    if (!title.trim() && currentStep === 'review') {
-      toast.error("Please enter a title for your blueprint")
-      return
-    }
-    
-    if (!prompt.trim() && currentStep === 'prompt') {
-      toast.error("Please enter a prompt for your blueprint")
-      return
+    if (currentStep === 'conversation') {
+      // Save current response if any
+      if (currentResponse.trim()) {
+        const currentQuestion = questions[activeQuestionIndex];
+        setConversation([
+          ...conversation,
+          { role: 'assistant', content: currentQuestion.content, questionId: currentQuestion.id },
+          { role: 'user', content: currentResponse, questionId: currentQuestion.id }
+        ]);
+        
+        setQuestionStatus({
+          ...questionStatus,
+          [currentQuestion.id]: "complete"
+        });
+        
+        setCurrentResponse("");
+      }
+      
+      // Check if all questions are answered
+      const allAnswered = questions.every(q => questionStatus[q.id] === "complete");
+      if (!allAnswered) {
+        toast.error("Please answer all questions before proceeding");
+        return;
+      }
+      
+      // Create the blueprint directly
+      try {
+        setIsLoading(true);
+        
+        // This would be replaced with actual API call
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        toast.success("Blueprint created successfully");
+        setIsOpen(false);
+        
+        // Reset form
+        setTitle("");
+        setPrompt("");
+        setCurrentStep('prompt');
+        setConversation([]);
+        setQuestionStatus(questions.reduce((acc, q) => ({...acc, [q.id]: "pending"}), {}));
+      } catch (error) {
+        toast.error("Failed to create blueprint", {
+          description: (error as Error).message || "Please try again later"
+        });
+      } finally {
+        setIsLoading(false);
+      }
+      
+      return;
     }
     
     if (currentStep === 'prompt') {
-      setCurrentStep('conversation')
-      // In a real implementation, this is where you'd send the prompt to the AI
-      // and start the conversation
-      setConversation([
-        ...demoConversation
-      ])
-      return
-    }
-    
-    if (currentStep === 'conversation') {
-      setCurrentStep('review')
-      return
-    }
-    
-    try {
-      setIsLoading(true)
+      if (!prompt.trim()) {
+        toast.error("Please enter a prompt for your blueprint");
+        return;
+      }
       
-      // This would be replaced with actual API call
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      
-      toast.success("Blueprint created successfully")
-      setIsOpen(false)
-      
-      // Reset form
-      setTitle("")
-      setPrompt("")
-      setCurrentStep('prompt')
-      setConversation([])
-    } catch (error) {
-      toast.error("Failed to create blueprint", {
-        description: (error as Error).message || "Please try again later"
-      })
-    } finally {
-      setIsLoading(false)
+      setTitle(prompt.split('\n')[0].slice(0, 50) + (prompt.length > 50 ? '...' : ''));
+      setCurrentStep('conversation');
+      return;
     }
-  }
+  };
   
   const handleBack = () => {
     if (currentStep === 'conversation') {
-      setCurrentStep('prompt')
-    } else if (currentStep === 'review') {
-      setCurrentStep('conversation')
+      setCurrentStep('prompt');
     }
-  }
+  };
   
-  const handleUserMessage = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    const form = e.currentTarget
-    const input = form.elements.namedItem('userMessage') as HTMLInputElement
-    
-    if (!input.value.trim()) return
-    
-    setConversation([
-      ...conversation,
-      { role: 'user', content: input.value },
-      { role: 'assistant', content: 'Based on our conversation, I think we have enough information. Let&apos;s review the blueprint details.' }
-    ])
-    
-    input.value = ''
-    
-    // Move to review step after a short delay to simulate AI processing
-    setTimeout(() => {
-      setCurrentStep('review')
-      // In a real implementation, title would be suggested by the AI
-      if (!title) setTitle("Daily LinkedIn Posts Summarizer")
-    }, 1500)
-  }
-
   const handleExampleClick = (exampleContent: string) => {
-    setPrompt(exampleContent)
-  }
+    setPrompt(exampleContent);
+  };
+  
+  const handleQuestionClick = (index: number) => {
+    // If there's a current response, save it before switching
+    if (currentResponse.trim()) {
+      const currentQuestion = questions[activeQuestionIndex];
+      setConversation([
+        ...conversation,
+        { role: 'assistant', content: currentQuestion.content, questionId: currentQuestion.id },
+        { role: 'user', content: currentResponse, questionId: currentQuestion.id }
+      ]);
+      
+      setQuestionStatus({
+        ...questionStatus,
+        [currentQuestion.id]: "complete"
+      });
+      
+      setCurrentResponse("");
+    }
+    
+    // Switch to the new question
+    setActiveQuestionIndex(index);
+  };
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
@@ -179,7 +283,7 @@ export function CreateBlueprintModal({
                 Describe what you want your AI to accomplish and we&apos;ll generate a blueprint for you.
               </DialogDescription>
               
-              {/* Minimalist Step Indicators */}
+              {/* Minimalist Step Indicators - only 2 steps now */}
               <div className="flex items-center gap-6 text-sm">
                 <div className={cn(
                   "flex items-center gap-2",
@@ -210,21 +314,6 @@ export function CreateBlueprintModal({
                   </div>
                   <span>Clarify Details</span>
                 </div>
-                
-                <div className={cn(
-                  "flex items-center gap-2",
-                  currentStep === 'review' ? "text-primary font-medium" : "text-muted-foreground"
-                )}>
-                  <div className={cn(
-                    "w-5 h-5 flex items-center justify-center rounded-full text-xs",
-                    currentStep === 'review' 
-                      ? "border-primary border text-primary font-medium" 
-                      : "border border-muted-foreground/50 text-muted-foreground"
-                  )}>
-                    3
-                  </div>
-                  <span>Review & Create</span>
-                </div>
               </div>
             </div>
           </DialogHeader>
@@ -248,201 +337,127 @@ export function CreateBlueprintModal({
                 <div className="flex flex-col h-full">
                   <h3 className="text-lg font-semibold mb-3">Examples</h3>
                   
-                  <div className="relative flex-1 overflow-hidden">
-                    {/* Added padding-right to prevent scrollbar overlap */}
-                    <div className="absolute inset-0 overflow-y-auto pr-4 space-y-4 pb-8 mask-fade-bottom">
-                      {examples.map((example, index) => (
-                        <div 
-                          key={index} 
-                          className="bg-background rounded-lg p-5 shadow-sm border hover:border-primary/30 hover:shadow-md transition-all cursor-pointer group"
-                          onClick={() => handleExampleClick(example.content)}
-                        >
-                          <div className="flex items-center justify-between mb-2">
-                            <h4 className="font-semibold text-primary group-hover:text-primary/80 transition-colors">
-                              {example.title}
-                            </h4>
-                            <span className={cn(
-                              "text-xs px-2 py-0.5 rounded-full font-medium",
-                              difficultyColors[example.difficulty as keyof typeof difficultyColors]
-                            )}>
-                              {example.difficulty}
-                            </span>
-                          </div>
-                          <p className="text-sm text-muted-foreground leading-relaxed group-hover:text-foreground/90 transition-colors">
-                            {example.content}
-                          </p>
+                  <ScrollContainer className="pr-4">
+                    {examples.map((example, index) => (
+                      <div 
+                        key={index} 
+                        className="bg-background rounded-lg p-5 shadow-sm border hover:border-primary/30 hover:shadow-md transition-all cursor-pointer group"
+                        onClick={() => handleExampleClick(example.content)}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="font-semibold text-primary group-hover:text-primary/80 transition-colors">
+                            {example.title}
+                          </h4>
+                          <span className={cn(
+                            "text-xs px-2 py-0.5 rounded-full font-medium",
+                            difficultyColors[example.difficulty as keyof typeof difficultyColors]
+                          )}>
+                            {example.difficulty}
+                          </span>
                         </div>
-                      ))}
-                    </div>
-                    {/* Fade-out effect at the bottom */}
-                    <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-background to-transparent pointer-events-none"></div>
-                  </div>
+                        <p className="text-sm text-muted-foreground group-hover:text-foreground/90 transition-colors">
+                          {example.content}
+                        </p>
+                      </div>
+                    ))}
+                  </ScrollContainer>
                 </div>
               </div>
             )}
             
             {currentStep === 'conversation' && (
-              <div className="grid grid-cols-3 gap-8 p-8 h-full">
-                <div className="col-span-2 flex flex-col">
-                  <h3 className="text-lg font-semibold mb-4">Let&apos;s clarify your requirements</h3>
-                  
-                  <div className="flex-1 overflow-auto bg-muted/20 rounded-xl p-6 mb-4 border border-border/40 h-[280px]">
-                    {conversation.map((message, index) => (
-                      <div 
-                        key={index} 
-                        className={cn(
-                          "mb-4 max-w-[80%] rounded-xl p-4",
-                          message.role === 'user' 
-                            ? "ml-auto bg-primary text-primary-foreground shadow-sm" 
-                            : "mr-auto bg-background border border-border/50 shadow-sm"
-                        )}
-                      >
-                        {message.content}
-                      </div>
-                    ))}
-                  </div>
-                  
-                  <form onSubmit={handleUserMessage} className="flex gap-3">
-                    <Input 
-                      name="userMessage" 
-                      placeholder="Type your response..." 
-                      className="flex-1 py-6 text-base focus-visible:ring-offset-1"
-                    />
-                    <Button type="submit" size="default" className="px-6">
-                      Send
-                    </Button>
-                  </form>
-                </div>
-                
-                <div className="flex flex-col">
-                  <h3 className="text-lg font-semibold mb-4">Your Original Request</h3>
-                  
-                  <div className="bg-background rounded-xl p-4 shadow-sm border border-border/40 mb-6">
-                    <p className="text-muted-foreground whitespace-pre-wrap">{prompt}</p>
-                  </div>
-                  
-                  <div>
-                    <h3 className="text-lg font-semibold mb-3">Agent Status</h3>
-                    <div className="bg-background rounded-xl p-5 shadow-sm border border-border/40">
-                      <div className="flex items-center text-amber-500 mb-4">
-                        <div className="h-4 w-4 mr-3 rounded-full bg-green-500 flex-shrink-0" />
-                        <span className="text-sm font-medium">Understanding request context</span>
-                      </div>
-                      <div className="flex items-center text-blue-500 mb-4">
-                        <div className="h-4 w-4 mr-3 rounded-full bg-green-500 flex-shrink-0" />
-                        <span className="text-sm font-medium">Gathering required details</span>
-                      </div>
-                      <div className="flex items-center text-muted-foreground">
-                        <div className="h-4 w-4 mr-3 rounded-full border-2 border-muted flex-shrink-0 animate-pulse" />
-                        <span className="text-sm font-medium">Finalizing blueprint structure</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-            
-            {currentStep === 'review' && (
               <div className="grid grid-cols-2 gap-8 p-8 h-full">
-                <div className="flex flex-col">
-                  <h3 className="text-lg font-semibold mb-5">Review Your Blueprint</h3>
+                <div className="flex flex-col h-full">
+                  <h3 className="text-lg font-semibold mb-3">Your Response</h3>
                   
-                  <div className="grid gap-6">
-                    <div className="grid gap-2">
-                      <Label htmlFor="title" className="text-base font-medium">Blueprint Title</Label>
-                      <Input 
-                        id="title" 
-                        placeholder="E.g., LinkedIn Data Scraper" 
-                        value={title}
-                        onChange={(e) => setTitle(e.target.value)}
-                        className="py-6 text-base focus-visible:ring-offset-1"
-                        required
-                      />
-                    </div>
-                    
-                    <div className="grid gap-2">
-                      <Label htmlFor="searchQuery" className="text-base font-medium">Refined Search Query</Label>
-                      <Input 
-                        id="searchQuery" 
-                        placeholder="LinkedIn post ideas for venture capital, AI, and Google Bard updates" 
-                        value="LinkedIn posts about AI, machine learning, venture capital from tech leaders, daily updates"
-                        className="py-6 text-base bg-muted/30 border-dashed"
-                        readOnly
-                      />
-                    </div>
-                    
-                    <div className="bg-muted/30 p-5 rounded-xl border border-border/40 mt-3">
-                      <h4 className="font-semibold mb-3 text-primary">Blueprint Summary</h4>
-                      <p className="text-base text-muted-foreground leading-relaxed">
-                        A system that will monitor LinkedIn daily for posts about AI and machine learning from venture capitalists and tech leaders. It will extract key content, analyze topics and sentiment, and generate a daily summary report highlighting important trends and discussions.
-                      </p>
-                    </div>
-                  </div>
+                  {/* Response textarea - removed the dynamic question title */}
+                  <Textarea 
+                    placeholder="Type your response here..." 
+                    className="h-full resize-none text-lg p-6 border focus-visible:ring-offset-1"
+                    value={currentResponse}
+                    onChange={(e) => setCurrentResponse(e.target.value)}
+                  />
                 </div>
                 
-                <div className="flex flex-col">
-                  <h3 className="text-lg font-semibold mb-4">Conversation Summary</h3>
+                <div className="flex flex-col h-full">
+                  <h3 className="text-lg font-semibold mb-3">Questions</h3>
                   
-                  <div className="overflow-auto max-h-[250px] pr-2 bg-background rounded-xl p-4 border border-border/40 mb-6">
-                    {conversation.map((message, index) => (
-                      <div key={index} className="mb-5 last:mb-0">
-                        <p className="text-xs font-semibold mb-1.5 text-primary/80">
-                          {message.role === 'user' ? 'You' : 'AI Assistant'}:
-                        </p>
-                        <p className="text-sm text-muted-foreground leading-relaxed">
-                          {message.content}
+                  <ScrollContainer className="pr-4">
+                    {questions.map((question, index) => (
+                      <div 
+                        key={question.id}
+                        className={cn(
+                          "bg-background rounded-lg p-5 shadow-sm border transition-all cursor-pointer",
+                          activeQuestionIndex === index ? "border-primary" : "border-border hover:border-primary/30",
+                        )}
+                        onClick={() => handleQuestionClick(index)}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="font-semibold text-foreground">
+                            {question.title}
+                          </h4>
+                          <span className={cn(
+                            "text-xs px-2 py-0.5 rounded-full font-medium",
+                            questionStatus[question.id] === "complete" 
+                              ? "bg-green-50 text-green-600 dark:bg-green-950/30" 
+                              : "bg-amber-50 text-amber-600 dark:bg-amber-950/30"
+                          )}>
+                            {questionStatus[question.id] === "complete" ? "Complete" : "Pending"}
+                          </span>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          {question.content}
                         </p>
                       </div>
                     ))}
-                  </div>
-                  
-                  <div>
-                    <h3 className="text-lg font-semibold mb-3">What&apos;s Next</h3>
-                    <div className="bg-background rounded-xl p-5 shadow-sm border border-border/40">
-                      <p className="text-sm text-muted-foreground leading-relaxed">
-                        After creating this blueprint, our AI will generate a detailed step-by-step implementation plan. You&apos;ll be able to track progress, make adjustments, and finalize the solution to exactly match your requirements.
-                      </p>
-                      <div className="mt-4 text-xs text-muted-foreground border-t border-border/40 pt-4">
-                        <span className="font-medium">Note:</span> The implementation plan will include estimated completion times and required tools for each step.
-                      </div>
-                    </div>
-                  </div>
+                  </ScrollContainer>
                 </div>
               </div>
             )}
           </div>
           
-          {/* Simplified footer without the text */}
+          {/* Footer - simplified with two steps */}
           <DialogFooter className="border-t py-4 px-8 mt-auto">
-            <div className="w-full flex items-center justify-end">
-              <div className="flex items-center gap-3 flex-shrink-0">
+            <div className="w-full flex items-center justify-between">
+              <div>
                 {currentStep !== 'prompt' && (
-                  <Button type="button" variant="outline" onClick={handleBack} disabled={isLoading} className="gap-2">
+                  <Button type="button" variant="ghost" onClick={handleBack} disabled={isLoading} className="gap-2 text-muted-foreground hover:text-foreground">
                     <ArrowLeft className="h-4 w-4" />
                     Back
                   </Button>
                 )}
-                <Button 
-                  type={currentStep === 'review' ? 'submit' : 'button'} 
-                  onClick={currentStep !== 'review' ? handleSubmit : undefined}
-                  disabled={isLoading}
-                  className="gap-2 px-8"
-                >
-                  {isLoading ? (
-                    <>
-                      <div className="h-4 w-4 rounded-full border-2 border-background border-t-transparent animate-spin" />
-                      Creating...
-                    </>
-                  ) : (
-                    <>
-                      {currentStep === 'prompt' && "Continue"}
-                      {currentStep === 'conversation' && "Review Blueprint"}
-                      {currentStep === 'review' && "Create Blueprint"}
-                      {currentStep !== 'review' && <ArrowRight className="h-4 w-4" />}
-                    </>
-                  )}
-                </Button>
               </div>
+              <Button 
+                type="button" 
+                onClick={handleSubmit}
+                disabled={
+                  isLoading || 
+                  (currentStep === 'prompt' && !prompt.trim()) ||
+                  (currentStep === 'conversation' && questions.every(q => questionStatus[q.id] === 'pending'))
+                }
+                variant={currentStep === 'conversation' ? "default" : "ghost"}
+                className={cn(
+                  "gap-2",
+                  currentStep === 'conversation' ? "px-8" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {isLoading ? (
+                  <>
+                    <div className="h-4 w-4 rounded-full border-2 border-background border-t-transparent animate-spin" />
+                    Creating...
+                  </>
+                ) : (
+                  <>
+                    {currentStep === 'prompt' && (
+                      <>
+                        Continue
+                        <ArrowRight className="h-4 w-4" />
+                      </>
+                    )}
+                    {currentStep === 'conversation' && "Create Blueprint"}
+                  </>
+                )}
+              </Button>
             </div>
           </DialogFooter>
         </form>
