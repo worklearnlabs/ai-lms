@@ -2,10 +2,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CheckCircle2 } from "lucide-react";
 import { getBlueprintById } from "@/utils/models";
-import BlueprintContent from "./components/blueprint-content";
-import BlueprintSidebar from "./components/blueprint-sidebar";
 import { ContentItem } from "./types";
 import BlueprintActionButton from "./components/blueprint-action-button";
+import Link from "next/link";
+import ClientWrapperContainer from "./components/client-wrapper-container";
 
 interface PageProps {
   params: {
@@ -24,7 +24,7 @@ export default async function BlueprintPage({ params }: PageProps) {
         <h1 className="text-2xl font-bold mb-2">Blueprint Not Found</h1>
         <p className="text-muted-foreground mb-4">The blueprint you&apos;re looking for does not exist or has been removed.</p>
         <Button asChild>
-          <a href="/blueprints">Back to Blueprints</a>
+          <Link href="/blueprints">Back to Blueprints</Link>
         </Button>
       </div>
     );
@@ -53,19 +53,12 @@ export default async function BlueprintPage({ params }: PageProps) {
         <BlueprintActionButton blueprintId={blueprint.id} />
       </div>
 
-      {/* Main content */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar */}
-        <BlueprintSidebar 
-          blueprintId={blueprint.id}
-          originalPrompt={blueprint.prompt} 
-        />
-        
-        {/* Main content area */}
-        <div className="flex-1 overflow-auto p-6">
-          <BlueprintContent content={blueprint.content as ContentItem[]} />
-        </div>
-      </div>
+      {/* Main content - Use client wrapper for view state */}
+      <ClientWrapperContainer 
+        blueprintId={blueprint.id}
+        originalPrompt={blueprint.prompt}
+        content={blueprint.content as ContentItem[]}
+      />
     </div>
   );
 } 

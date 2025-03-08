@@ -1,7 +1,6 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { useState } from "react";
 import { useBlueprintContext } from "../context/blueprint-context";
@@ -30,46 +29,40 @@ export default function BlueprintSidebar({ blueprintId, originalPrompt }: Bluepr
   };
 
   return (
-    <div className="w-[350px] border-r bg-muted/10 overflow-y-auto flex flex-col">
-      <div className="p-4">
-        <Card className="mb-4">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Original Prompt</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-sm text-muted-foreground bg-muted/50 p-3 rounded-md">
-              {originalPrompt}
-            </div>
-          </CardContent>
-        </Card>
+    <div className="w-full overflow-y-auto flex flex-col space-y-6">
+      {/* Original Prompt Section */}
+      <div className="space-y-2">
+        <h4 className="text-sm font-semibold text-muted-foreground">Original Prompt</h4>
+        <div className="text-sm">
+          {originalPrompt}
+        </div>
+      </div>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Regenerate Blueprint</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <Textarea
-                placeholder="Enter a new prompt to regenerate this blueprint..."
-                className="min-h-[120px] resize-none"
-                value={newPrompt}
-                onChange={(e) => setNewPrompt(e.target.value)}
-              />
-              {regenerationError && (
-                <div className="text-sm text-red-500">
-                  {regenerationError}
-                </div>
-              )}
-              <Button 
-                className="w-full" 
-                onClick={handleRegenerateBlueprint}
-                disabled={isRegenerating || !newPrompt.trim()}
-              >
-                {isRegenerating ? "Regenerating..." : "Regenerate Blueprint"}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+      {/* Regenerate Blueprint Section */}
+      <div className="space-y-3">
+        <h4 className="text-sm font-semibold text-muted-foreground">Regenerate Blueprint</h4>
+        <Textarea
+          placeholder="Enter a new prompt to regenerate this blueprint..."
+          className="min-h-[120px] resize-none text-sm"
+          value={newPrompt}
+          onChange={(e) => setNewPrompt(e.target.value)}
+        />
+        
+        {regenerationError && (
+          <div className="text-sm text-red-500 mt-2">
+            {regenerationError}
+          </div>
+        )}
+        
+        <Button 
+          className="w-full" 
+          size="sm"
+          variant="secondary"
+          onClick={handleRegenerateBlueprint}
+          disabled={isRegenerating || !newPrompt.trim()}
+        >
+          {isRegenerating ? "Regenerating..." : "Regenerate Blueprint"}
+        </Button>
       </div>
     </div>
   );
