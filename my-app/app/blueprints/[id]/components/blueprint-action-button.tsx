@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Play, PlayCircle, Save, Share2 } from "lucide-react";
+import { Play, PlayCircle } from "lucide-react";
 import { 
   Dialog, 
   DialogContent, 
@@ -39,16 +39,7 @@ export default function BlueprintActionButton({ blueprintId }: BlueprintActionBu
   };
   
   return (
-    <div className="flex items-center space-x-2">
-      <Button variant="outline" size="sm">
-        <Share2 className="h-4 w-4 mr-2" />
-        Share
-      </Button>
-      <Button variant="outline" size="sm">
-        <Save className="h-4 w-4 mr-2" />
-        Export
-      </Button>
-      
+    <div className="flex items-center">
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogTrigger asChild>
           <Button size="sm">

@@ -26,7 +26,6 @@ export default function StepList({ steps: initialSteps }: StepListProps) {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-xl font-bold mb-6">System Architecture Implementation Steps</h2>
       {steps.map((step, index) => (
         <StepCard
           key={index}
