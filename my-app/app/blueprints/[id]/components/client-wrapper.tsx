@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import BlueprintContent from "./blueprint-content";
 import BlueprintSidebar from "./blueprint-sidebar";
 import { ContentItem } from "../types";
-import ViewToggle from "./view-toggle";
 
 interface ClientWrapperProps {
   blueprintId: string;
@@ -13,31 +12,58 @@ interface ClientWrapperProps {
 }
 
 export default function ClientWrapper({ blueprintId, originalPrompt, content }: ClientWrapperProps) {
-  const [currentView, setCurrentView] = useState<"list" | "flow">("list");
-  // Add mounted state to prevent hydration mismatch
+  // Keep track of mounted state to prevent hydration mismatch
   const [mounted, setMounted] = useState(false);
   
-  // Only render after component is mounted on client
+  // Add state for selected subtask
+  const [selectedSubtask, setSelectedSubtask] = useState<{
+    stepNumber: number;
+    taskIndex: number;
+    text: string;
+  } | null>(null);
+  
+  // Add state for tasks expanded/collapsed
+  const [tasksExpanded, setTasksExpanded] = useState(true);
+  
   useEffect(() => {
     setMounted(true);
   }, []);
   
-  const handleViewChange = (view: "list" | "flow") => {
-    setCurrentView(view);
+  // Handle blueprint recreation with modal
+  const handleRecreateBlueprint = (prompt: string) => {
+    console.log("Opening blueprint creation modal with:", prompt);
+    // In a real implementation, you would:
+    // 1. Open a modal with the prompt pre-filled
+    // 2. Start the AI-driven Q&A process
+    // 3. Create a new blueprint or update the existing one
+    
+    // For demo purposes, we're just logging the action
+    alert(`Recreating blueprint with prompt: ${prompt}`);
+  };
+  
+  // Handle subtask selection
+  const handleSubtaskSelect = (stepNumber: number, taskIndex: number, text: string) => {
+    setSelectedSubtask({
+      stepNumber,
+      taskIndex,
+      text
+    });
+  };
+  
+  // Handle toggle all tasks
+  const handleToggleAllTasks = (expanded: boolean) => {
+    setTasksExpanded(expanded);
   };
   
   // Don't render until client-side to prevent hydration mismatch
   if (!mounted) {
     return (
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden h-[calc(100vh-170px)]">
         <div className="flex-1 p-6">
-          <div className="h-12 mb-6 flex justify-between items-center">
+          <div className="h-12 mb-4 flex justify-between items-center">
             <h2 className="text-xl font-bold">Implementation Plan</h2>
-            <div className="flex items-center">
-              <div className="h-10 w-28 rounded-md bg-muted/20 animate-pulse"></div>
-            </div>
           </div>
-          <div className="h-[calc(100vh-220px)] bg-muted/20 rounded-lg flex items-center justify-center">
+          <div className="h-[calc(100%-60px)] bg-muted/20 rounded-lg flex items-center justify-center">
             <div className="animate-pulse">Loading...</div>
           </div>
         </div>
@@ -46,48 +72,31 @@ export default function ClientWrapper({ blueprintId, originalPrompt, content }: 
   }
   
   return (
-    <div className="flex flex-1 overflow-hidden">
-      {/* Main content area - takes full width in both views */}
-      <div className="w-full overflow-auto p-6">
-        {/* Fixed Implementation Plan title and view toggle */}
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-bold">Implementation Plan</h2>
-          <ViewToggle view={currentView} onChange={handleViewChange} />
+    <div className="flex flex-1 overflow-hidden h-[calc(100vh-170px)]">
+      {/* Main content area - takes full width */}
+      <div className="w-full h-full flex flex-col overflow-hidden">
+        <div className="flex-1 overflow-hidden p-6">
+          {/* Always show flow view content without conditional rendering */}
+          <BlueprintContent 
+            content={content} 
+            originalPrompt={originalPrompt}
+            onRecreateBlueprint={handleRecreateBlueprint}
+            onSubtaskSelect={handleSubtaskSelect}
+            tasksExpanded={tasksExpanded}
+            onToggleAllTasks={handleToggleAllTasks}
+          />
         </div>
-        
-        {currentView === "list" ? (
-          <div className="flex gap-6">
-            {/* Sidebar */}
-            <div className="w-64 shrink-0">
-              <h3 className="text-md font-medium mb-4">Blueprint Info</h3>
-              <BlueprintSidebar 
-                blueprintId={blueprintId}
-                originalPrompt={originalPrompt} 
-              />
-            </div>
-            
-            {/* Steps List */}
-            <div className="flex-1">
-              <h3 className="text-md font-medium mb-4">Steps</h3>
-              <BlueprintContent 
-                content={content} 
-                onViewChange={handleViewChange}
-                view={currentView}
-                showViewToggle={false}
-              />
-            </div>
-          </div>
-        ) : (
-          /* Flow Diagram View - full height for better diagram visibility */
-          <div className="h-[calc(100vh-150px)]">
-            <BlueprintContent 
-              content={content} 
-              onViewChange={handleViewChange}
-              view={currentView}
-              showViewToggle={false}
-            />
-          </div>
-        )}
+      </div>
+
+      {/* Blueprint sidebar with tools information - increased width */}
+      <div className="w-96 bg-muted/5 border-l border-border overflow-y-auto">
+        <BlueprintSidebar 
+          blueprintId={blueprintId} 
+          originalPrompt={originalPrompt}
+          selectedSubtask={selectedSubtask}
+          tasksExpanded={tasksExpanded}
+          onToggleAllTasks={handleToggleAllTasks}
+        />
       </div>
     </div>
   );

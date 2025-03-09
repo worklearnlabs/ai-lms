@@ -1,11 +1,12 @@
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { CheckCircle2 } from "lucide-react";
 import { getBlueprintById } from "@/utils/models";
+import ClientWrapper from "./components/client-wrapper";
 import { ContentItem } from "./types";
-import BlueprintActionButton from "./components/blueprint-action-button";
+import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import ClientWrapperContainer from "./components/client-wrapper-container";
+import { Badge } from "@/components/ui/badge";
+import { CheckCircle2 } from "lucide-react";
+import BlueprintActionButton from "./components/blueprint-action-button";
+import CopyButton from "./components/copy-button";
 
 interface PageProps {
   params: {
@@ -31,32 +32,44 @@ export default async function BlueprintPage({ params }: PageProps) {
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      {/* Header */}
+    <div className="flex-1 flex flex-col h-full">
+      {/* Restore header with blueprint title and status */}
       <div className="p-6 flex items-center justify-between border-b">
-        <div className="flex items-center space-x-4">
-          <h1 className="text-2xl font-bold">{blueprint.title}</h1>
-          <div className="flex items-center">
-            {blueprint.isVerified ? (
-              <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 border-none flex items-center gap-1">
-                <CheckCircle2 className="h-3 w-3" />
-                Verified
-              </Badge>
-            ) : (
-              <Badge variant="outline" className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 border-none">
-                {blueprint.status}
-              </Badge>
-            )}
+        <div className="flex flex-col">
+          <div className="flex items-center space-x-4">
+            <h1 className="text-2xl font-bold">{blueprint.title}</h1>
+            
+            {/* Use the client component for copy button */}
+            <CopyButton textToCopy={`${blueprint.title}: ${blueprint.details}`} />
+            
+            <div className="flex items-center">
+              {blueprint.isVerified ? (
+                <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 border-none flex items-center gap-1">
+                  <CheckCircle2 className="h-3 w-3" />
+                  Verified
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 border-none">
+                  {blueprint.status}
+                </Badge>
+              )}
+            </div>
           </div>
+          {/* Add brief blueprint scope/description as subtext */}
+          <p className="text-sm text-muted-foreground mt-1">
+            {/* Using the details property from the blueprint */}
+            {blueprint.details || "Create an automation for scraping information from LinkedIn posts and save it on a Google Doc"}
+          </p>
         </div>
+        
         {/* Action buttons */}
         <BlueprintActionButton blueprintId={blueprint.id} />
       </div>
 
-      {/* Main content - Use client wrapper for view state */}
-      <ClientWrapperContainer 
-        blueprintId={blueprint.id}
-        originalPrompt={blueprint.prompt}
+      {/* Main content with flow diagram */}
+      <ClientWrapper 
+        blueprintId={params.id} 
+        originalPrompt={blueprint.prompt} 
         content={blueprint.content as ContentItem[]}
       />
     </div>

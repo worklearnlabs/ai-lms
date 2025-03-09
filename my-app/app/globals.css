@@ -79,6 +79,7 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  --minimap-mask-color: rgba(0, 0, 0, 0.2);
 }
 
 .dark {
@@ -114,6 +115,7 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(0.269 0 0);
   --sidebar-ring: oklch(0.439 0 0);
+  --minimap-mask-color: rgba(255, 255, 255, 0.15);
 }
 
 @layer base {
@@ -129,4 +131,12 @@
 .mask-fade-bottom {
   -webkit-mask-image: linear-gradient(to bottom, black 85%, transparent 100%);
   mask-image: linear-gradient(to bottom, black 85%, transparent 100%);
+}
+
+/* Add a custom style for the minimap in dark mode */
+.dark .minimap-custom {
+  --purple-500: #c4b5fd; /* lighter purple */
+  --blue-500: #93c5fd;   /* lighter blue */
+  --emerald-500: #6ee7b7; /* lighter green */
+  --slate-400: #cbd5e1;  /* lighter gray */
 }
