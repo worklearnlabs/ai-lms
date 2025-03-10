@@ -9,6 +9,7 @@ This document provides guidelines and best practices for using Supabase in the A
 3. [Database Operations](#database-operations)
 4. [Common Issues and Solutions](#common-issues-and-solutions)
 5. [Best Practices](#best-practices)
+6. [Related Documentation](#related-documentation)
 
 ## Overview
 
@@ -17,6 +18,8 @@ Our application uses Supabase for:
 - Authentication and user management
 - Database storage (PostgreSQL)
 - Real-time data synchronization
+
+> **NOTE**: For blueprint-specific implementation details, refer to the [Blueprint System Database Schema](./blueprint_system_schema.md) and [Blueprint System Guide](./supabase_blueprint_guide.md) documentation.
 
 ## Authentication
 
@@ -238,3 +241,9 @@ const mappedUser = {
    NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
    SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
    ```
+
+## Related Documentation
+
+- [Blueprint System Database Schema](./blueprint_system_schema.md) - Complete schema for the Blueprint system
+- [Blueprint System Guide](./supabase_blueprint_guide.md) - Implementation guide for the Blueprint system
+- [Supabase CRUD Guide](./supabase-crud-guide.md) - Detailed guide for CRUD operations with Supabase
