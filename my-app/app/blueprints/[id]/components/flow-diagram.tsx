@@ -22,20 +22,13 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { Step } from '../types';
-import { Copy, FileEdit, Loader2, RefreshCw, Minimize2, Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, Minimize2, Copy, RefreshCw, Loader2 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 
 // Prompt Node component to display original prompt
-function PromptNode({ data }: NodeProps) {
-  // Function to handle blueprint recreation
-  const handleRecreateBlueprint = () => {
-    if (data.onRecreateBlueprint) {
-      data.onRecreateBlueprint(data.originalPrompt);
-    }
-  };
-  
+function PromptNode() {
   return (
     <div className="relative bg-background border border-border rounded-md shadow-md p-5 w-[400px]">
       {/* Bottom source handle to connect to first step - hidden if there's an edge */}
@@ -51,16 +44,6 @@ function PromptNode({ data }: NodeProps) {
           <p className="text-sm text-muted-foreground">
             Automated daily search of LinkedIn posts containing specific keywords, followed by extraction and summarization.
           </p>
-        </div>
-        
-        <div className="flex justify-end">
-          <button 
-            className="text-xs text-primary hover:text-primary/80 hover:underline inline-flex items-center gap-1"
-            onClick={handleRecreateBlueprint}
-          >
-            <FileEdit className="h-3 w-3" />
-            Edit Blueprint
-          </button>
         </div>
       </div>
     </div>
@@ -89,6 +72,14 @@ function StepNode({ data, id }: NodeProps) {
   
   const handleMouseLeave = () => {
     setIsHovered(false);
+  };
+  
+  // Handle click to select this step
+  const handleClick = () => {
+    // If onNodeClick is provided, call it with the step number
+    if (data.onNodeClick) {
+      data.onNodeClick(data.number);
+    }
   };
   
   // Fallback mouse position tracking with extended bounds for reliable hover
@@ -123,7 +114,7 @@ function StepNode({ data, id }: NodeProps) {
       document.removeEventListener('mousemove', handleMouseMove);
     };
   }, []); // Empty dependency array - only add/remove once
-
+  
   // Function to create regeneration node
   const createRegenerationNode = () => {
     // Check if it's already visible
@@ -240,6 +231,7 @@ function StepNode({ data, id }: NodeProps) {
       className="relative bg-background border border-border rounded-md shadow-md p-5 w-[400px] hover:shadow-lg transition-shadow"
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
+      onClick={handleClick}
       data-node-id={id}
     >
       {/* Connection handles */}
@@ -461,7 +453,6 @@ interface FlowDiagramProps {
   onNodeClick?: (stepIndex: number, regeneratePrompt?: string) => void;
   onRecreateBlueprint?: (originalPrompt: string) => void;
   onSubtaskSelect?: (stepNumber: number, taskIndex: number, text: string) => void;
-  tasksExpanded?: boolean;
 }
 
 export default function FlowDiagram({ 
@@ -469,8 +460,7 @@ export default function FlowDiagram({
   originalPrompt, 
   onNodeClick, 
   onRecreateBlueprint,
-  onSubtaskSelect,
-  tasksExpanded = true
+  onSubtaskSelect
 }: FlowDiagramProps) {
   // Register node types
   const nodeTypes = useMemo(() => ({ 
@@ -502,6 +492,9 @@ export default function FlowDiagram({
       // Position first step node at y: 300 and maintain equal spacing for subsequent nodes
       const yPosition = originalPrompt ? 300 + (index * 300) : index * 300;
       
+      // Log step info to debug
+      console.log(`Creating node for step ${step.number} at index ${index}`);
+      
       nodes.push({
         id: `step-${step.number}`,
         type: 'stepNode',
@@ -509,15 +502,19 @@ export default function FlowDiagram({
         data: { 
           ...step,
           index,
-          onRegenerateClick: () => onNodeClick?.(index),
-          onCopyClick: () => {},
+          onNodeClick: onNodeClick,
+          onRegenerateClick: (stepIndex: number, regeneratePrompt?: string) => {
+            if (onNodeClick) {
+              onNodeClick(stepIndex, regeneratePrompt);
+            }
+          },
           onToggleSubtasks: () => {},  // We'll handle this in FlowContent
-          showSubtasks: tasksExpanded
+          showSubtasks: true
         }
       });
       
       // Add subtask nodes if they exist and tasks are expanded
-      if (step.instructions && step.instructions.length > 0 && tasksExpanded) {
+      if (step.instructions && step.instructions.length > 0) {
         // Calculate the minimum height needed for each subtask to have 1rem (16px) spacing
         const subtaskMinHeight = 16; // 1rem = 16px
         const subtaskCount = step.instructions.length;
@@ -557,7 +554,7 @@ export default function FlowDiagram({
     });
     
     return nodes;
-  }, [steps, onNodeClick, tasksExpanded, originalPrompt, onRecreateBlueprint, onSubtaskSelect]);
+  }, [steps, onNodeClick, originalPrompt, onRecreateBlueprint, onSubtaskSelect]);
 
   // Create edges between nodes with nice styling
   const initialEdges: Edge[] = useMemo(() => {
@@ -616,7 +613,7 @@ export default function FlowDiagram({
             style: { 
               stroke: '#94a3b8', 
               strokeWidth: 2,
-              opacity: tasksExpanded ? 1 : 0, // Show if tasks are expanded
+              opacity: 1, // Show if tasks are expanded
               strokeDasharray: '5, 5' // Make subtask connections dashed
             },
             markerEnd: {
@@ -625,14 +622,14 @@ export default function FlowDiagram({
               height: 16,
               color: '#94a3b8',
             },
-            hidden: !tasksExpanded, // Hide if tasks are collapsed
+            hidden: false, // Hide if tasks are collapsed
           });
         });
       }
     });
     
     return edges;
-  }, [steps, tasksExpanded, originalPrompt]);
+  }, [steps]);
 
   return (
     <ReactFlowProvider>
@@ -640,8 +637,6 @@ export default function FlowDiagram({
         initialNodes={initialNodes}
         initialEdges={initialEdges}
         nodeTypes={nodeTypes}
-        steps={steps}
-        tasksExpanded={tasksExpanded}
       />
     </ReactFlowProvider>
   );
@@ -657,19 +652,13 @@ interface FlowContentProps {
     regenerateNode: React.ComponentType<NodeProps>;
     subtaskBubble: React.ComponentType<NodeProps>;
   };
-  steps: Step[];
-  tasksExpanded: boolean;
 }
 
 // Inner component that uses ReactFlow hooks safely inside the provider
 function FlowContent({ 
   initialNodes, 
   initialEdges, 
-  nodeTypes,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  steps,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  tasksExpanded 
+  nodeTypes
 }: FlowContentProps) {
   const reactFlowInstance = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);

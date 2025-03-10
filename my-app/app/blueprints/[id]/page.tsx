@@ -14,8 +14,9 @@ interface PageProps {
   };
 }
 
-export default async function BlueprintPage({ params }: PageProps) {
-  // Fetch blueprint from API (this would normally use server actions or API routes)
+export default async function BlueprintPage(props: PageProps) {
+  // Await params before accessing its properties
+  const params = await props.params;
   const blueprint = await getBlueprintById(params.id);
 
   // Fallback content if no blueprint is found
@@ -63,12 +64,11 @@ export default async function BlueprintPage({ params }: PageProps) {
         </div>
         
         {/* Action buttons */}
-        <BlueprintActionButton blueprintId={blueprint.id} />
+        <BlueprintActionButton blueprintId={params.id} />
       </div>
 
       {/* Main content with flow diagram */}
       <ClientWrapper 
-        blueprintId={params.id} 
         originalPrompt={blueprint.prompt} 
         content={blueprint.content as ContentItem[]}
       />
