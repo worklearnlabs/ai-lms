@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { createBlueprint, getBlueprints } from "@/utils/models";
-import { generateWithFallback } from "@/utils/ai-orchestrator";
+import { z } from 'zod';
+import { createStandardServerClient } from '@/utils/supabase';
+import { blueprintApi } from '@/utils/blueprints-api';
+import { ComplexityType } from "@/types/schema";
 
 // Handler for GET /api/blueprints
 export async function GET() {
@@ -21,57 +24,147 @@ export async function GET() {
   }
 }
 
+// Validation schema for POST request
+const BlueprintCreateSchema = z.object({
+  // Required fields
+  title: z.string().min(1, "Title is required"),
+  searchQuery: z.string().min(1, "Search query is required"),
+  
+  // Optional fields from reasoning agent
+  complexity: z.enum(['beginner', 'intermediate', 'advanced']).optional(),
+  estimatedTime: z.string().optional(),
+  prerequisites: z.array(z.string()).optional(),
+  
+  // Original fields
+  prompt: z.string().optional(),
+  sessionId: z.string().uuid().optional(),
+  skill_level: z.enum(['beginner', 'intermediate', 'advanced']).optional(),
+  learning_objective: z.string().optional(),
+  visibility: z.enum(['private', 'public', 'team']).optional(),
+  team_id: z.string().uuid().optional(),
+});
+
 // Handler for POST /api/blueprints
 export async function POST(request: Request) {
   try {
     // Get request data
     const data = await request.json();
     
-    // Basic validation
-    if (!data.title) {
+    // Validate using Zod schema
+    const result = BlueprintCreateSchema.safeParse(data);
+    if (!result.success) {
       return NextResponse.json(
-        { error: "Title is required" },
+        { 
+          error: "Invalid input", 
+          details: result.error.format() 
+        },
         { status: 400 }
       );
     }
     
-    // Use mock user ID for now
-    const userId = "user-1";
+    const validatedData = result.data;
     
-    // Generate AI blueprint if objectives are provided
-    let generatedContent = null;
+    // Initialize Supabase client
+    const supabase = createStandardServerClient();
     
-    if (data.objectives && Array.isArray(data.objectives)) {
-      try {
-        // Use AI to generate blueprint content
-        const aiPrompt = `Generate a detailed learning blueprint for: ${data.title}. 
-         Description: ${data.description || ""}
-         Objectives: ${data.objectives.join(", ")}
-         User skill level: beginner`;
-        
-        const aiResponse = await generateWithFallback(aiPrompt, { detailed: true });
-        
-        if (aiResponse && aiResponse.content) {
-          generatedContent = aiResponse.content;
-        }
-      } catch (aiError) {
-        console.error("AI generation error:", aiError);
-        // Continue without AI generation
-      }
+    // Get the user ID from the session
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
+    
+    if (sessionError || !session) {
+      return NextResponse.json(
+        { error: "Authentication required" },
+        { status: 401 }
+      );
     }
     
-    // Create the blueprint using the utility function
-    const blueprint = await createBlueprint({
-      title: data.title,
-      prompt: data.prompt || (generatedContent ? generatedContent : ""),
-      userId,
-    });
+    const userId = session.user.id;
     
-    return NextResponse.json({ blueprint }, { status: 201 });
+    // If a sessionId is provided, make sure to update the reasoning session with the blueprint ID
+    if (validatedData.sessionId) {
+      try {
+        // Map the complexity to the correct type
+        const complexityValue: ComplexityType | undefined = 
+          validatedData.complexity as ComplexityType | undefined;
+        
+        // Create the blueprint using the API utility
+        const { data: newBlueprint, error } = await blueprintApi.createBlueprint({
+          title: validatedData.title,
+          search_query: validatedData.searchQuery,
+          prompt: validatedData.prompt || "",
+          content: {},
+          skill_level: validatedData.skill_level || validatedData.complexity,
+          complexity: complexityValue,
+          estimated_time: validatedData.estimatedTime,
+          learning_objective: validatedData.learning_objective,
+          visibility: validatedData.visibility || 'private',
+          team_id: validatedData.team_id
+        });
+        
+        if (error || !newBlueprint) {
+          console.error("Error creating blueprint:", error);
+          return NextResponse.json(
+            { error: "Failed to create blueprint" },
+            { status: 500 }
+          );
+        }
+        
+        // Update the reasoning session with the blueprint_id
+        const { error: updateError } = await supabase
+          .from('reasoning_sessions')
+          .update({ 
+            blueprint_id: newBlueprint.id,
+            status: 'completed'
+          })
+          .eq('id', validatedData.sessionId);
+        
+        if (updateError) {
+          console.error("Error updating reasoning session:", updateError);
+          // Not a critical error, continue despite this
+        }
+        
+        return NextResponse.json({ 
+          blueprint: newBlueprint,
+          id: newBlueprint.id
+        }, { status: 201 });
+      } catch (error) {
+        console.error("Error in blueprint creation process:", error);
+        return NextResponse.json(
+          { error: "Failed to create blueprint" },
+          { status: 500 }
+        );
+      }
+    } else {
+      // Legacy fallback path if no sessionId is provided
+      try {
+        // Use search query for prompt if not provided
+        const promptToUse = validatedData.prompt || validatedData.searchQuery || "";
+        
+        // Create the blueprint using the legacy utility function
+        const blueprint = await createBlueprint({
+          title: validatedData.title,
+          prompt: promptToUse,
+          userId,
+        });
+        
+        return NextResponse.json({ 
+          blueprint, 
+          id: blueprint.id 
+        }, { status: 201 });
+      } catch (error) {
+        console.error("Error in legacy blueprint creation:", error);
+        return NextResponse.json(
+          { error: "Failed to create blueprint" },
+          { status: 500 }
+        );
+      }
+    }
   } catch (error) {
-    console.error("Error creating blueprint:", error);
+    console.error("Error in request processing:", error);
     return NextResponse.json(
-      { error: "Failed to create blueprint" },
+      { error: "Failed to process request" },
       { status: 500 }
     );
   }

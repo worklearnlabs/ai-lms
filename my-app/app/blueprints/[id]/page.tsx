@@ -1,12 +1,12 @@
 import { getBlueprintById } from "@/utils/models";
 import ClientWrapper from "./components/client-wrapper";
-import { ContentItem } from "./types";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle2 } from "lucide-react";
 import BlueprintActionButton from "./components/blueprint-action-button";
 import CopyButton from "./components/copy-button";
+import TestButtonWrapper from "./components/test-button-wrapper";
 
 interface PageProps {
   params: {
@@ -50,27 +50,29 @@ export default async function BlueprintPage(props: PageProps) {
                   Verified
                 </Badge>
               ) : (
-                <Badge variant="outline" className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 border-none">
-                  {blueprint.status}
+                <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 border-none">
+                  Draft
                 </Badge>
               )}
             </div>
           </div>
-          {/* Add brief blueprint scope/description as subtext */}
-          <p className="text-sm text-muted-foreground mt-1">
-            {/* Using the details property from the blueprint */}
-            {blueprint.details || "Create an automation for scraping information from LinkedIn posts and save it on a Google Doc"}
+          
+          <p className="text-muted-foreground mt-1">
+            {blueprint.details || "No details available"}
           </p>
         </div>
         
-        {/* Action buttons */}
-        <BlueprintActionButton blueprintId={params.id} />
+        <div className="flex items-center gap-2">
+          {/* Add TestButton component for easy testing */}
+          <TestButtonWrapper />
+          <BlueprintActionButton blueprintId={blueprint.id} />
+        </div>
       </div>
 
       {/* Main content with flow diagram */}
       <ClientWrapper 
         originalPrompt={blueprint.prompt} 
-        content={blueprint.content as ContentItem[]}
+        content={blueprint.content}
       />
     </div>
   );

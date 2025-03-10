@@ -116,6 +116,22 @@ export const blueprintApi = {
       .single();
   },
 
+  async deleteBlueprint(id: string) {
+    const supabase = createClientSupabase();
+    
+    // First delete the related steps (cascade will handle subtasks)
+    await supabase
+      .from('blueprint_steps')
+      .delete()
+      .eq('blueprint_id', id);
+    
+    // Then delete the blueprint itself
+    return await supabase
+      .from('blueprints')
+      .delete()
+      .eq('id', id);
+  },
+
   // Blueprint Steps
   async getBlueprintSteps(blueprintId: string) {
     const supabase = createClientSupabase();

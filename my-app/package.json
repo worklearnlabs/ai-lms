@@ -25,6 +25,7 @@
     "db:run-migrations": "tsx scripts/migrate.ts"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^1.2.1",
     "@ai-sdk/react": "^1.1.21",
     "@anthropic-ai/sdk": "^0.13.0",
     "@hookform/resolvers": "^4.1.3",
