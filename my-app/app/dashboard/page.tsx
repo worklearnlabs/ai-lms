@@ -14,11 +14,36 @@ import { ThemeToggle } from "@/components/theme-toggle"
 import { BlueprintModalProvider } from "@/app/blueprints/components/blueprint-modal-context"
 import { getDashboardData, DashboardData } from "@/utils/dashboard/dashboard-service"
 import { Skeleton } from "@/components/ui/skeleton"
+import { createClientSupabase } from '@/utils/supabase'
+import { useAuth } from "@/utils/auth"
+import { Button } from "@/components/ui/button"
 
 export default function Page() {
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const { signOut } = useAuth()
+
+  useEffect(() => {
+    // Debug authentication status
+    const checkAuth = async () => {
+      try {
+        const supabase = createClientSupabase()
+        const { data, error } = await supabase.auth.getUser();
+        if (error) {
+          console.error('Auth error in dashboard:', error.message);
+        } else if (data.user) {
+          console.log('🔐 Dashboard Auth: Authenticated as ', data.user.id);
+        } else {
+          console.log('❌ Dashboard Auth: Not authenticated');
+        }
+      } catch (e) {
+        console.error('Exception checking auth:', e);
+      }
+    }
+    
+    checkAuth()
+  }, [])
 
   useEffect(() => {
     async function fetchDashboardData() {
@@ -37,6 +62,16 @@ export default function Page() {
 
     fetchDashboardData()
   }, [])
+
+  const handleLogout = async () => {
+    console.log("Logout button clicked")
+    try {
+      await signOut()
+      console.log("Logout successful")
+    } catch (error) {
+      console.error("Error during logout:", error)
+    }
+  }
 
   return (
     <BlueprintModalProvider>
@@ -81,6 +116,16 @@ export default function Page() {
           ) : dashboardData && (
             <DashboardContent data={dashboardData} />
           )}
+          
+          <div className="mt-8">
+            <Button 
+              variant="destructive" 
+              onClick={handleLogout}
+              className="absolute bottom-4 right-4"
+            >
+              Log Out (Test)
+            </Button>
+          </div>
         </SidebarInset>
       </SidebarProvider>
     </BlueprintModalProvider>

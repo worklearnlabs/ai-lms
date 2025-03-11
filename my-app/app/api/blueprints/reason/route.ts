@@ -33,30 +33,39 @@ const ReasoningRequestSchema = z.object({
 // Reasoning Agent System Prompt
 const getSystemPrompt = (skillLevel?: SkillLevelType, learningObjective?: string) => `
 You are an AI educator and consultant assistant helping users define AI automation tasks.
-Based on the user's request, ask clarifying questions considering:
+Based on the user's initial request, ask clarifying questions considering:
 
 1. Their skill level: ${skillLevel || '{Not provided yet. Assume beginner}'}
 2. Their learning objective: ${learningObjective || '{Not provided yet. Assume general learning objective}'}
 3. Specific constraints or requirements for the task
 
-Ask clarifying questions. Limit to at most 3 clarifying questions before providing the final JSON with:
+IMPORTANT: Your first response must always include both:
+1. A suggested blueprint title based on the initial request
+2. Clarifying questions to improve the implementation plan
+
+Format your first response as JSON:
 {
-  "title": "Define your audience",
-  "question": "Can you tell me more about who will be using this LinkedIn content analyzer? Are they marketers, sales professionals, or executives?",
+  "blueprint_title": "A clear, descriptive title for the overall AI system (30-60 chars)",
+  "question": {
+    "title": "Short title for this question",
+    "content": "The full clarifying question here?"
+  }
 }
 
-Always ensure your questions are tailored to the user's apparent skill level.
-For beginners, ask about their familiarity with tools and suggest simpler approaches.
-For intermediate users, focus on specific implementation details and preferences.
-For advanced users, probe for optimization requirements and scaling concerns.
+Example good blueprint titles:
+- "Daily LinkedIn Posts Summarizer" (not "I want an AI that summarizes LinkedIn posts")
+- "Customer Support Email Classifier" (not "Email classifier for support")
+- "Meeting Transcription & Action Item Extractor" (not "Transcription system")
 
+The blueprint title should be concise yet descriptive, focusing on what the AI will do.
+Always tailor your questions to the user's apparent skill level.
 
-Once you have the answers, provide a structured JSON with:
+After gathering all necessary information, your final response should contain:
 {
-  "title": "Clear descriptive title for the blueprint",
-  "searchQuery": "Refined search terms for research",
+  "searchQuery": "Detailed search terms for implementation research with clear instructions for formatting the response as JSON only"
 }
 
+The searchQuery should contain specific terms that will help generate a comprehensive implementation plan.
 `;
 
 export async function POST(req: Request) {
@@ -142,7 +151,7 @@ export async function POST(req: Request) {
           const { data: newBlueprint, error: blueprintError } = await supabase
             .from('blueprints')
             .insert({
-              title: 'Draft Blueprint - ' + prompt.substring(0, 30),
+              title: 'Untitled Blueprint - Will be named by AI',
               is_verified: false,
               visibility: 'private',
               user_id: userId,
@@ -308,21 +317,62 @@ export async function POST(req: Request) {
           content: response.content,
         });
       
-      // Check if the response contains a complete JSON
-      const isComplete = response.content.includes('"title"') && 
-                        response.content.includes('"searchQuery"');
-      
-      // Try to extract JSON if complete
+      // Check if the response contains a JSON with a blueprint title
+      let extractedTitle = null;
       let data = null;
-      if (isComplete) {
-        try {
-          // Find JSON in the response
-          const jsonMatch = response.content.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            data = JSON.parse(jsonMatch[0]);
+      try {
+        // Try to find and parse JSON in the response
+        const jsonMatch = response.content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsedJson = JSON.parse(jsonMatch[0]);
+          
+          // Extract title from blueprint_title field (only in initial response)
+          if (parsedJson && parsedJson.blueprint_title) {
+            extractedTitle = parsedJson.blueprint_title;
+            console.log('Extracted blueprint_title from response:', extractedTitle);
+            
+            // Update the blueprint with the title immediately
+            const { error: updateError } = await supabase
+              .from('blueprints')
+              .update({
+                title: extractedTitle,
+              })
+              .eq('id', blueprintId);
+              
+            if (updateError) {
+              console.error('Error updating blueprint with extracted title:', updateError);
+            } else {
+              console.log('Successfully updated blueprint title to:', extractedTitle);
+            }
           }
-        } catch (e) {
-          console.warn('Could not parse JSON from response:', e);
+          
+          // Set data for isComplete check below
+          data = parsedJson;
+        }
+      } catch (e) {
+        console.warn('Could not parse JSON from response:', e);
+      }
+      
+      // Check if the response contains a complete JSON with searchQuery (final response)
+      const isComplete = response.content.includes('"searchQuery"');
+      
+      // If this is the final response with searchQuery, update the blueprint
+      if (isComplete && data && data.searchQuery) {
+        console.log('Updating blueprint with search query:', data.searchQuery);
+        
+        // Update the blueprint with the searchQuery
+        const { error: updateError } = await supabase
+          .from('blueprints')
+          .update({
+            search_query: data.searchQuery,
+            // Don't update title again, we already did that above
+          })
+          .eq('id', blueprintId);
+          
+        if (updateError) {
+          console.error('Error updating blueprint with search query:', updateError);
+        } else {
+          console.log('Successfully updated blueprint search query');
         }
       }
       

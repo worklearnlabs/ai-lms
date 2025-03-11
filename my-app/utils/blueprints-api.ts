@@ -21,6 +21,8 @@ export interface BlueprintInput {
   complexity?: ComplexityType;
   estimated_time?: string;
   prompt?: string;
+  is_temporary?: boolean;
+  user_id?: string;
 }
 
 export interface BlueprintStepInput {
@@ -63,11 +65,23 @@ export interface ReasoningMessageInput {
 // Client-side API functions (browser environment)
 export const blueprintApi = {
   // Blueprints
-  async getBlueprints() {
+  async getBlueprints(userId?: string) {
     const supabase = createClientSupabase();
+    
+    // If userId is provided, fetch user's blueprints and public ones
+    if (userId) {
+      return await supabase
+        .from('blueprints')
+        .select('*')
+        .or(`user_id.eq.${userId},visibility.eq.public`)
+        .order('created_at', { ascending: false });
+    }
+    
+    // Otherwise, just return public blueprints
     return await supabase
       .from('blueprints')
       .select('*')
+      .eq('visibility', 'public')
       .order('created_at', { ascending: false });
   },
 
@@ -101,6 +115,8 @@ export const blueprintApi = {
         prompt: data.prompt || null,
         status: 'draft',
         is_verified: false,
+        user_id: data.user_id,
+        is_temporary: data.is_temporary || false,
       })
       .select('id')
       .single();

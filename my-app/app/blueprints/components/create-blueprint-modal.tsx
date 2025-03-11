@@ -91,7 +91,7 @@ export function CreateBlueprintModal({
   const [createdBlueprintId, setCreatedBlueprintId] = useState<string | undefined>();
   const [finalData, setFinalData] = useState<{
     title: string;
-    searchQuery: string;
+    search_query: string;
     complexity?: 'beginner' | 'intermediate' | 'advanced';
     estimatedTime?: string;
     prerequisites?: string[];
@@ -166,19 +166,26 @@ export function CreateBlueprintModal({
     [key: string]: unknown;
   }
 
+  // New state for temporary blueprint
+  const [tempBlueprintId, setTempBlueprintId] = useState<string | null>(null);
+  
   // Fetch AI-generated questions based on the prompt
-  const fetchQuestions = async (userPrompt: string) => {
+  const fetchQuestions = async (userPrompt: string, blueprintId: string) => {
     setIsLoading(true);
     
     try {
       console.log('Fetching questions for prompt:', userPrompt);
       
+      // Now fetch questions, including the blueprint_id
       const response = await fetch('/api/blueprints/questions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ prompt: userPrompt }),
+        body: JSON.stringify({ 
+          prompt: userPrompt,
+          blueprint_id: blueprintId 
+        }),
       });
       
       if (!response.ok) {
@@ -251,8 +258,7 @@ export function CreateBlueprintModal({
         setQuestionStatus(initialStatus);
         setActiveQuestionIndex(0); // Focus on the first question
         
-        // Move to conversation step with the questions
-        setCurrentStep('conversation');
+        // No longer need to set the current step here since it's handled in handleInitialPrompt
       } else {
         console.error('Invalid response format from questions API:', data);
         toast.error("Invalid response format", {
@@ -265,6 +271,7 @@ export function CreateBlueprintModal({
       toast.error("Failed to generate questions", {
         description: error instanceof Error ? error.message : "Please try again later"
       });
+      throw error; // Rethrow to be handled by caller
     } finally {
       setIsLoading(false);
     }
@@ -277,27 +284,87 @@ export function CreateBlueprintModal({
       return;
     }
     
-    // Fetch AI-generated questions based on the prompt
-    await fetchQuestions(prompt);
+    setIsLoading(true);
+    
+    try {
+      // Step 1: Create a temporary blueprint first
+      if (!tempBlueprintId) {
+        const blueprintResponse = await fetch('/api/blueprints', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            title: prompt.split('\n')[0].slice(0, 50) || 'Draft Blueprint',
+            search_query: prompt,
+            visibility: 'private',
+            is_temporary: true // Flag this as a temporary blueprint
+          }),
+        });
+        
+        if (!blueprintResponse.ok) {
+          throw new Error(`Failed to create temporary blueprint: ${blueprintResponse.status}`);
+        }
+        
+        const blueprintData = await blueprintResponse.json();
+        setTempBlueprintId(blueprintData.id);
+        console.log('Created temporary blueprint:', blueprintData.id);
+        
+        // Step 2: Now fetch questions using the temporary blueprint ID
+        await fetchQuestions(prompt, blueprintData.id);
+      } else {
+        // If we already have a temporary blueprint ID, just fetch questions
+        await fetchQuestions(prompt, tempBlueprintId);
+      }
+      
+      // Move to conversation step
+      setCurrentStep('conversation');
+    } catch (error) {
+      console.error('Error in initial prompt handling:', error);
+      toast.error("Failed to process your request", {
+        description: error instanceof Error ? error.message : "Please try again later"
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
   
   // Handle question click to change active question
-  const handleQuestionClick = (index: number) => {
+  const handleQuestionClick = async (index: number) => {
     // If there's a current response, save it before switching
     if (currentResponse.trim()) {
       const currentQuestion = questions[activeQuestionIndex];
       
-      // Store the response
-      setResponses(prev => ({
-        ...prev,
-        [currentQuestion.id]: currentResponse
-      }));
-      
-      // Mark as complete
-      setQuestionStatus(prev => ({
-        ...prev,
-        [currentQuestion.id]: "complete"
-      }));
+      if (currentQuestion) {
+        const updatedResponses = {
+          ...responses,
+          [currentQuestion.id]: currentResponse
+        };
+        
+        setResponses(updatedResponses);
+        
+        // Mark as complete
+        setQuestionStatus(prev => ({
+          ...prev,
+          [currentQuestion.id]: "complete"
+        }));
+        
+        // Save response to database if we have a blueprint_id
+        if (tempBlueprintId) {
+          try {
+            await saveResponseToDatabase(tempBlueprintId, currentQuestion.id.toString(), currentResponse);
+            console.log(`Response saved for question ${currentQuestion.id}`);
+          } catch (error) {
+            console.error('Error saving response:', error);
+            // Continue despite error - we've already updated the UI state
+            toast.error("Couldn't save your response", { 
+              description: "Your response was saved locally but not synced to the server."
+            });
+          }
+        } else {
+          console.warn('No temporary blueprint ID available, response not saved to database');
+        }
+      }
       
       // Clear the response field for the next question
       setCurrentResponse("");
@@ -313,6 +380,30 @@ export function CreateBlueprintModal({
     }
   };
   
+  // New function to save responses to the database
+  const saveResponseToDatabase = async (blueprintId: string, questionId: string, response: string): Promise<void> => {
+    const saveResponse = await fetch('/api/blueprints/questions/responses', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        blueprint_id: blueprintId,
+        responses: {
+          [questionId]: response
+        }
+      }),
+    });
+    
+    if (!saveResponse.ok) {
+      const errorText = await saveResponse.text();
+      console.error('Failed to save response:', errorText);
+      throw new Error(`Failed to save response: ${saveResponse.status} ${errorText}`);
+    }
+    
+    console.log('Response saved successfully');
+  };
+  
   // Handle creating the final blueprint
   const handleCreateBlueprint = async () => {
     // Check if all questions are answered
@@ -325,15 +416,27 @@ export function CreateBlueprintModal({
         const currentQuestion = questions[activeQuestionIndex];
         
         if (currentQuestion) {
-          setResponses(prev => ({
-            ...prev,
+          const updatedResponses = {
+            ...responses,
             [currentQuestion.id]: currentResponse
-          }));
+          };
+          
+          setResponses(updatedResponses);
           
           setQuestionStatus(prev => ({
             ...prev,
             [currentQuestion.id]: "complete"
           }));
+          
+          // Save final response to database
+          if (tempBlueprintId) {
+            try {
+              await saveResponseToDatabase(tempBlueprintId, currentQuestion.id.toString(), currentResponse);
+            } catch (error) {
+              console.error('Error saving final response:', error);
+              // Continue despite this error
+            }
+          }
         }
       }
       
@@ -348,19 +451,48 @@ export function CreateBlueprintModal({
     try {
       setIsLoading(true);
       
-      // Here you would call your API to create the blueprint with all the responses
-      // For example:
-      // const result = await blueprintApi.createBlueprint({
-      //   title: title || prompt.split('\n')[0].slice(0, 50),
-      //   prompt: prompt,
-      //   content: { userResponses: responses },
-      // });
+      if (!tempBlueprintId) {
+        toast.error("No temporary blueprint found");
+        setIsLoading(false);
+        return;
+      }
       
-      // For now, we'll simulate the API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      console.log('Finalizing blueprint with ID:', tempBlueprintId);
+      
+      // Get all the responses together to generate a refined search query
+      const refinedSearchQuery = await generateRefinedSearchQuery(prompt, responses);
+      
+      // Update the blueprint with the final details
+      const updateResult = await fetch(`/api/blueprints/${tempBlueprintId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title: prompt.split('\n')[0].slice(0, 50) || 'New Blueprint',
+          search_query: refinedSearchQuery,
+          is_temporary: false, // Mark as a permanent blueprint
+          content: { 
+            original_prompt: prompt,
+            questions: questions.map(q => ({ id: q.id, title: q.title, content: q.content })),
+            responses: responses
+          },
+        }),
+      });
+      
+      if (!updateResult.ok) {
+        const errorText = await updateResult.text();
+        throw new Error(`Failed to update blueprint: ${updateResult.status} ${errorText}`);
+      }
+      
+      const updatedBlueprint = await updateResult.json();
+      console.log('Blueprint updated successfully:', updatedBlueprint);
       
       toast.success("Blueprint created successfully");
       setIsOpen(false);
+      
+      // Redirect to the blueprint page
+      window.location.href = `/blueprints/${tempBlueprintId}`;
       
     } catch (error) {
       console.error('Error creating blueprint:', error);
@@ -369,6 +501,20 @@ export function CreateBlueprintModal({
       });
     } finally {
       setIsLoading(false);
+    }
+  };
+  
+  // Helper function to generate a refined search query based on responses
+  const generateRefinedSearchQuery = async (originalPrompt: string, questionResponses: { [key: number]: string }): Promise<string> => {
+    try {
+      // For now, we'll just concatenate the prompt with responses
+      // In a real implementation, you might use an AI to refine this
+      const combinedResponses = Object.values(questionResponses).join(' ');
+        
+      return `${originalPrompt} ${combinedResponses}`.substring(0, 500);
+    } catch (error) {
+      console.error('Error generating refined search query:', error);
+      return originalPrompt;
     }
   };
 
@@ -602,11 +748,11 @@ export function CreateBlueprintModal({
                     </div>
                     
                     <div>
-                      <Label htmlFor="searchQuery" className="text-base">Search Query</Label>
+                      <Label htmlFor="search_query" className="text-base">Search Query</Label>
                       <Textarea 
-                        id="searchQuery"
-                        value={finalData.searchQuery}
-                        onChange={(e) => setFinalData({...finalData, searchQuery: e.target.value})}
+                        id="search_query"
+                        value={finalData.search_query}
+                        onChange={(e) => setFinalData({...finalData, search_query: e.target.value})}
                         className="mt-1"
                         rows={4}
                       />

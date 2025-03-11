@@ -2,6 +2,8 @@
 
 This document outlines the full requirements, user journey, and technical implementation for the "Create Blueprint" functionality. In addition to a traditional list view, users can now toggle to a dynamic flow chart view (powered by React Flow) to visualize the blueprint's step-by-step implementation. The system leverages Supabase's real-time features and Vercel AI SDK's streaming capabilities, and it supports multi-turn reasoning, dynamic step regeneration, and interactive flow chart editing.
 
+> **Developer Note:** For detailed technical implementation notes, including resolved issues related to data storage and user identity, please see [Blueprint Creation Technical Notes](./blueprint_creation_technical_notes.md).
+
 ---
 
 ## 1. Overview

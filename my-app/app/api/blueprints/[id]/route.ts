@@ -15,6 +15,7 @@ const BlueprintUpdateSchema = z.object({
   description: z.string().optional(),
   search_query: z.string().optional(),
   is_verified: z.boolean().optional(),
+  is_temporary: z.boolean().optional(),
   visibility: z.enum(['private', 'public', 'team'] as const).optional(),
   team_id: z.string().uuid().optional().nullable(),
   skill_level: z.enum(['beginner', 'intermediate', 'advanced'] as const).optional(),
