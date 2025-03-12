@@ -67,7 +67,7 @@ export const blueprintApi = {
   // Blueprints
   async getBlueprints(userId?: string) {
     const supabase = createClientSupabase();
-    
+
     // If userId is provided, fetch user's blueprints and public ones
     if (userId) {
       return await supabase
@@ -76,7 +76,7 @@ export const blueprintApi = {
         .or(`user_id.eq.${userId},visibility.eq.public`)
         .order('created_at', { ascending: false });
     }
-    
+
     // Otherwise, just return public blueprints
     return await supabase
       .from('blueprints')
@@ -85,16 +85,72 @@ export const blueprintApi = {
       .order('created_at', { ascending: false });
   },
 
+  // Clean up stale temporary blueprints
+  async cleanupTemporaryBlueprints(userId?: string, maxAgeHours: number = 24) {
+    try {
+      console.log(`Cleaning up temporary blueprints older than ${maxAgeHours} hours for ${userId ? `user ${userId}` : 'all users'}`);
+      const supabase = createClientSupabase();
+
+      // Calculate cutoff time
+      const cutoffDate = new Date();
+      cutoffDate.setHours(cutoffDate.getHours() - maxAgeHours);
+      const cutoffTimestamp = cutoffDate.toISOString();
+
+      // Build the query to find stale temporary blueprints
+      let query = supabase
+        .from('blueprints')
+        .delete()
+        .eq('is_temporary', true)
+        .lt('created_at', cutoffTimestamp);
+
+      // Add user filter if provided
+      if (userId) {
+        query = query.eq('user_id', userId);
+      }
+
+      // Execute the deletion
+      const { data, error } = await query;
+
+      if (error) {
+        console.error('Error cleaning up temporary blueprints:', error);
+        return { success: false, error };
+      }
+
+      console.log('Successfully cleaned up stale temporary blueprints');
+      return { success: true, data };
+    } catch (error) {
+      console.error('Exception during temporary blueprint cleanup:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error : new Error('Unknown error during cleanup')
+      };
+    }
+  },
+
   async getBlueprintById(id: string) {
-    const supabase = createClientSupabase();
-    return await supabase
-      .from('blueprints')
-      .select(`
-        *,
-        steps:blueprint_steps(*)
-      `)
-      .eq('id', id)
-      .single();
+    try {
+      console.log(`blueprintApi.getBlueprintById: Fetching blueprint with ID ${id}`);
+      const supabase = createClientSupabase();
+      const response = await supabase
+        .from('blueprints')
+        .select(`
+          *,
+          steps:blueprint_steps(*)
+        `)
+        .eq('id', id)
+        .single();
+
+      if (response.error) {
+        console.error(`blueprintApi.getBlueprintById: Error fetching blueprint ${id}:`, response.error);
+      } else if (response.data) {
+        console.log(`blueprintApi.getBlueprintById: Successfully retrieved blueprint ${id}`);
+      }
+
+      return response;
+    } catch (error) {
+      console.error(`blueprintApi.getBlueprintById: Exception when fetching blueprint ${id}:`, error);
+      return { data: null, error: error instanceof Error ? error : new Error('Unknown error') };
+    }
   },
 
   async createBlueprint(data: BlueprintInput) {
@@ -133,13 +189,13 @@ export const blueprintApi = {
 
   async deleteBlueprint(id: string) {
     const supabase = createClientSupabase();
-    
+
     // First delete the related steps (cascade will handle subtasks)
     await supabase
       .from('blueprint_steps')
       .delete()
       .eq('blueprint_id', id);
-    
+
     // Then delete the blueprint itself
     return await supabase
       .from('blueprints')
@@ -298,33 +354,33 @@ export const blueprintApi = {
   // Realtime subscriptions
   subscribeToMessages(sessionId: string, callback: (payload: Record<string, unknown>) => void) {
     const supabase = createClientSupabase();
-    
+
     return supabase
       .channel(`reasoning_messages:session_id=eq.${sessionId}`)
-      .on('postgres_changes', 
-        { 
-          event: 'INSERT', 
-          schema: 'public', 
+      .on('postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
           table: 'reasoning_messages',
           filter: `session_id=eq.${sessionId}`
-        }, 
+        },
         callback
       )
       .subscribe();
   },
-  
+
   subscribeToStepChanges(blueprintId: string, callback: (payload: Record<string, unknown>) => void) {
     const supabase = createClientSupabase();
-    
+
     return supabase
       .channel(`blueprint_steps:blueprint_id=eq.${blueprintId}`)
-      .on('postgres_changes', 
-        { 
-          event: '*', 
-          schema: 'public', 
+      .on('postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
           table: 'blueprint_steps',
           filter: `blueprint_id=eq.${blueprintId}`
-        }, 
+        },
         callback
       )
       .subscribe();
@@ -338,7 +394,7 @@ export const serverBlueprintApi = {
     // This is a server-side only operation that would call the migration function
     return await supabase.rpc('migrate_blueprint_content');
   },
-  
+
   async getBlueprintWithFullDetails(id: string) {
     const supabase = createStandardServerClient();
     return await supabase
@@ -361,7 +417,7 @@ export const serverBlueprintApi = {
       .eq('id', id)
       .single();
   },
-  
+
   // Admin function to verify blueprints
   async verifyBlueprint(id: string, isVerified: boolean = true) {
     const supabase = createStandardServerClient();

@@ -3,12 +3,6 @@ import { z } from 'zod';
 import { createStandardServerClient } from '@/utils/supabase';
 import { updateBlueprint, regenerateBlueprint } from "@/utils/models";
 
-interface RouteParams {
-  params: {
-    id: string;
-  };
-}
-
 // Define validation schema for PATCH requests
 const BlueprintUpdateSchema = z.object({
   title: z.string().min(1).optional(),
@@ -28,21 +22,38 @@ const BlueprintUpdateSchema = z.object({
 // GET endpoint to fetch a specific blueprint by ID
 export async function GET(
   req: Request, 
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   try {
-    const id = params.id;
+    // Properly await the params object
+    const params = await context.params;
+    const { id } = params;
+    console.log(`GET /api/blueprints/${id} - Fetching blueprint`);
     
     // Validate the ID
     if (!id) {
+      console.log('Blueprint ID is missing');
       return NextResponse.json(
         { error: 'Blueprint ID is required' },
         { status: 400 }
       );
     }
     
-    // Get the blueprint from Supabase
+    // Format validation for UUIDs
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(id)) {
+      console.error(`Invalid UUID format for blueprint ID: ${id}`);
+      return NextResponse.json(
+        { error: 'Invalid blueprint ID format' },
+        { status: 400 }
+      );
+    }
+    
+    // Get the blueprint from Supabase - simple approach
     const supabase = createStandardServerClient();
+    console.log(`Querying Supabase for blueprint with ID: ${id}`);
+    
+    // Try to fetch with details directly - skip the exists check
     const { data: blueprint, error } = await supabase
       .from('blueprints')
       .select(`
@@ -53,26 +64,49 @@ export async function GET(
       .single();
     
     if (error) {
+      console.error(`Error fetching blueprint ${id}:`, error);
+      
+      // Provide more specific error messages based on the error code
+      if (error.code === 'PGRST116') {
+        return NextResponse.json(
+          { error: 'Blueprint not found', details: 'Blueprint exists but may not be accessible due to permissions' },
+          { status: 404 }
+        );
+      }
+      
+      if (error.code === 'PGRST104') {
+        return NextResponse.json(
+          { error: 'Blueprint not found', details: 'No blueprint with this ID exists in the database' },
+          { status: 404 }
+        );
+      }
+      
       return NextResponse.json(
-        { error: 'Blueprint not found' },
-        { status: 404 }
+        { error: 'Error fetching blueprint', details: error.message, code: error.code },
+        { status: 500 }
       );
     }
     
-    return NextResponse.json({ blueprint });
+    console.log(`Successfully retrieved blueprint ${id}`);
+    
+    // Return the blueprint directly instead of wrapping it
+    return NextResponse.json(blueprint);
   } catch (error) {
     console.error('Error fetching blueprint:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch blueprint' },
+      { error: 'Failed to fetch blueprint', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
   }
 }
 
 // Handler for PUT /api/blueprints/[id]
-export async function PUT(request: Request, { params }: RouteParams) {
+export async function PUT(request: Request, context: { params: { id: string } }) {
   try {
+    // Properly await the params object
+    const params = await context.params;
     const { id } = params;
+    
     const data = await request.json();
     
     const blueprint = await updateBlueprint(id, data);
@@ -86,7 +120,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
     
     return NextResponse.json({ blueprint });
   } catch (error) {
-    console.error(`Error updating blueprint ${params.id}:`, error);
+    console.error(`Error updating blueprint:`, error);
     return NextResponse.json(
       { error: "Failed to update blueprint" },
       { status: 500 }
@@ -95,9 +129,12 @@ export async function PUT(request: Request, { params }: RouteParams) {
 }
 
 // Handler for POST /api/blueprints/[id]/regenerate
-export async function POST(request: Request, { params }: RouteParams) {
+export async function POST(request: Request, context: { params: { id: string } }) {
   try {
+    // Properly await the params object
+    const params = await context.params;
     const { id } = params;
+    
     const { prompt } = await request.json();
     
     if (!prompt) {
@@ -118,7 +155,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     
     return NextResponse.json({ blueprint });
   } catch (error) {
-    console.error(`Error regenerating blueprint ${params.id}:`, error);
+    console.error(`Error regenerating blueprint:`, error);
     return NextResponse.json(
       { error: "Failed to regenerate blueprint" },
       { status: 500 }
@@ -129,10 +166,12 @@ export async function POST(request: Request, { params }: RouteParams) {
 // PATCH endpoint to update a blueprint
 export async function PATCH(
   req: Request,
-  { params }: RouteParams
+  context: { params: { id: string } }
 ) {
   try {
-    const id = params.id;
+    // Properly await the params object
+    const params = await context.params;
+    const { id } = params;
     
     // Validate the ID
     if (!id) {
@@ -167,9 +206,16 @@ export async function PATCH(
       .from('blueprints')
       .select('id, is_verified')
       .eq('id', id)
-      .single();
+      .maybeSingle();
     
-    if (fetchError || !existingBlueprint) {
+    if (fetchError) {
+      return NextResponse.json(
+        { error: 'Error verifying blueprint existence', details: fetchError.message },
+        { status: 500 }
+      );
+    }
+    
+    if (!existingBlueprint) {
       return NextResponse.json(
         { error: 'Blueprint not found' },
         { status: 404 }
@@ -230,10 +276,12 @@ export async function PATCH(
 // DELETE endpoint to delete a blueprint
 export async function DELETE(
   req: Request,
-  { params }: RouteParams
+  context: { params: { id: string } }
 ) {
   try {
-    const id = params.id;
+    // Properly await the params object
+    const params = await context.params;
+    const { id } = params;
     
     // Validate the ID
     if (!id) {
@@ -251,9 +299,16 @@ export async function DELETE(
       .from('blueprints')
       .select('id')
       .eq('id', id)
-      .single();
+      .maybeSingle();
     
-    if (fetchError || !existingBlueprint) {
+    if (fetchError) {
+      return NextResponse.json(
+        { error: 'Error verifying blueprint existence', details: fetchError.message },
+        { status: 500 }
+      );
+    }
+    
+    if (!existingBlueprint) {
       return NextResponse.json(
         { error: 'Blueprint not found' },
         { status: 404 }
@@ -286,5 +341,58 @@ export async function DELETE(
       { error: 'Failed to delete blueprint' },
       { status: 500 }
     );
+  }
+}
+
+// HEAD endpoint to check if a blueprint exists
+export async function HEAD(
+  req: Request,
+  context: { params: { id: string } }
+) {
+  try {
+    // Properly await the params object
+    const params = await context.params;
+    const { id } = params;
+    
+    console.log(`HEAD /api/blueprints/${id} - Checking if blueprint exists`);
+    
+    // Validate the ID
+    if (!id) {
+      console.log('Blueprint ID is missing in HEAD request');
+      return new Response(null, { status: 400 });
+    }
+    
+    // Format validation for UUIDs
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(id)) {
+      console.error(`Invalid UUID format for blueprint ID in HEAD request: ${id}`);
+      return new Response(null, { status: 400 });
+    }
+    
+    // Get the blueprint from Supabase - simple approach
+    const supabase = createStandardServerClient();
+    
+    // Just check if the blueprint exists with the minimal query
+    const { data, error } = await supabase
+      .from('blueprints')
+      .select('id')
+      .eq('id', id)
+      .maybeSingle(); // Use maybeSingle to avoid errors for non-existent IDs
+    
+    if (error) {
+      console.error(`Database error in HEAD request for blueprint ${id}:`, error);
+      return new Response(null, { status: 500 });
+    }
+    
+    if (!data) {
+      console.log(`Blueprint with ID ${id} does not exist (HEAD request)`);
+      return new Response(null, { status: 404 });
+    }
+    
+    console.log(`Blueprint with ID ${id} exists (HEAD request)`);
+    return new Response(null, { status: 200 });
+  } catch (error) {
+    console.error('Error in HEAD request for blueprint:', error);
+    return new Response(null, { status: 500 });
   }
 } 

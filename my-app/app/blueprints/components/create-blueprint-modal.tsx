@@ -24,6 +24,7 @@ interface CreateBlueprintModalProps {
   triggerButton?: React.ReactNode;
   isOpen?: boolean;
   onOpenChange?: (open: boolean) => void;
+  temporaryBlueprintId?: string | null;
 }
 
 // Reusable scroll-aware container component that hides the fade effect when at the bottom
@@ -59,7 +60,8 @@ function ScrollContainer({ children, className }: { children: React.ReactNode; c
 export function CreateBlueprintModal({ 
   triggerButton,
   isOpen: externalIsOpen,
-  onOpenChange: externalOnOpenChange 
+  onOpenChange: externalOnOpenChange,
+  temporaryBlueprintId
 }: CreateBlueprintModalProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [internalIsOpen, setInternalIsOpen] = useState(false)
@@ -133,17 +135,9 @@ export function CreateBlueprintModal({
   // Reset state when modal is closed
   useEffect(() => {
     if (!isOpen) {
-      // If there's a created blueprint but the process wasn't completed, delete it
-      if (createdBlueprintId && currentStep !== 'review') {
-        try {
-          // Clean up the abandoned blueprint
-          console.log('Cleaning up abandoned blueprint:', createdBlueprintId);
-          blueprintApi.deleteBlueprint(createdBlueprintId)
-            .catch(error => console.error('Error deleting abandoned blueprint:', error));
-        } catch (error) {
-          console.error('Failed to clean up blueprint:', error);
-        }
-      }
+      // No longer delete any blueprints when modal is closed
+      // Just reset the state variables to prepare for next time
+      console.log('Modal closed, resetting state variables without deleting any blueprints');
       
       setPrompt("");
       setTitle("");
@@ -156,7 +150,194 @@ export function CreateBlueprintModal({
       setQuestionStatus({});
       setResponses({});
     }
-  }, [isOpen, createdBlueprintId, currentStep]);
+  }, [isOpen]);
+
+  // Load temporary blueprint data when provided
+  useEffect(() => {
+    if (temporaryBlueprintId) {
+      const loadTemporaryBlueprint = async () => {
+        try {
+          setIsLoading(true);
+          console.log("Loading temporary blueprint:", temporaryBlueprintId);
+          
+          // Helper function to start a fresh blueprint
+          const startFreshBlueprint = (title: string, description: string) => {
+            setTitle("");
+            setPrompt("");
+            setCurrentStep('prompt');
+            setQuestions([]);
+            setResponses({});
+            setQuestionStatus({});
+            setActiveQuestionIndex(0);
+            
+            // Inform the user what happened
+            toast.info(title, {
+              description: description
+            });
+          };
+          
+          // Define the blueprint data interface
+          interface BlueprintData {
+            id?: string;
+            title?: string;
+            prompt?: string;
+            search_query?: string;
+            content?: {
+              questions?: Array<{
+                id: number;
+                title: string;
+                content: string;
+              }>;
+              responses?: Record<string, string>;
+            };
+            complexity?: 'beginner' | 'intermediate' | 'advanced';
+            estimated_time?: string;
+            prerequisites?: string[];
+          }
+
+          // Helper function to process the loaded blueprint data
+          const processLoadedBlueprint = (data: BlueprintData) => {
+            // Set the title and prompt
+            setTitle(data.title || "");
+            setPrompt(data.prompt || "");
+            
+            // Log the origin information to help with debugging
+            console.log("Loaded blueprint details:", {
+              title: data.title,
+              prompt: data.prompt,
+              hasSearchQuery: !!data.search_query,
+              hasQuestions: !!(data.content && data.content.questions),
+              hasResponses: !!(data.content && data.content.responses),
+              responseCount: data.content?.responses ? Object.keys(data.content.responses).length : 0
+            });
+            
+            // Show a toast to inform the user we've loaded their draft
+            toast.info("Draft blueprint loaded", {
+              description: "Continuing from where you left off"
+            });
+            
+            // If there's a search_query, set the final data
+            if (data.search_query) {
+              setFinalData({
+                title: data.title || "",
+                search_query: data.search_query,
+                complexity: data.complexity,
+                estimatedTime: data.estimated_time,
+                prerequisites: data.prerequisites
+              });
+              
+              // If we have final data, move to the review step
+              setCurrentStep('review');
+            }
+            
+            // If there are questions and responses in the content, load them
+            if (data.content && data.content.questions) {
+              setQuestions(data.content.questions);
+            }
+            
+            if (data.content && data.content.responses) {
+              setResponses(data.content.responses);
+              
+              // Set question status based on responses
+              const newQuestionStatus: QuestionStatusMap = {};
+              for (const questionId in data.content.responses) {
+                newQuestionStatus[parseInt(questionId)] = "complete";
+              }
+              setQuestionStatus(newQuestionStatus);
+              
+              // If we have responses and not final data, move to the conversation step
+              if (!data.search_query) {
+                setCurrentStep('conversation');
+                setActiveQuestionIndex(Object.keys(data.content.responses).length);
+              }
+            }
+            
+            // Set the blueprint ID
+            setCreatedBlueprintId(temporaryBlueprintId);
+          };
+          
+          // Try using the blueprintApi utility directly without any pre-verification
+          try {
+            console.log("Attempting to load blueprint with blueprintApi:", temporaryBlueprintId);
+            const { data, error } = await blueprintApi.getBlueprintById(temporaryBlueprintId);
+            
+            if (error) {
+              console.error("Error using blueprintApi:", error);
+              throw new Error("Failed to load with blueprintApi");
+            }
+            
+            if (data) {
+              console.log("Successfully loaded blueprint with blueprintApi:", data);
+              processLoadedBlueprint(data);
+              return;
+            }
+          } catch (apiError) {
+            console.error("Error with blueprintApi approach:", apiError);
+            // Continue to fallback approach
+          }
+          
+          // Fallback: Direct fetch to the API endpoint
+          console.log("Attempting direct API fetch as fallback");
+          
+          try {
+            const response = await fetch(`/api/blueprints/${temporaryBlueprintId}`);
+            
+            if (!response.ok) {
+              console.error(`API response error: ${response.status} ${response.statusText}`);
+              
+              // Blueprint couldn't be found/accessed, start a fresh blueprint process
+              startFreshBlueprint(
+                "Your previous draft couldn't be loaded", 
+                "Starting a new blueprint creation process"
+              );
+              return;
+            }
+            
+            const data = await response.json();
+            console.log("API response data:", data);
+            
+            // API now returns the blueprint directly, not wrapped in an object
+            if (!data) {
+              console.error("No blueprint data in API response");
+              startFreshBlueprint(
+                "Blueprint data was empty", 
+                "Starting a new blueprint creation process"
+              );
+              return;
+            }
+            
+            console.log("Loaded temporary blueprint data:", data);
+            processLoadedBlueprint(data);
+          } catch (fetchError) {
+            console.error("Error fetching blueprint directly:", fetchError);
+            startFreshBlueprint(
+              "Error loading your previous draft", 
+              "Starting a new blueprint creation process"
+            );
+          }
+        } catch (error) {
+          console.error("Unexpected error loading temporary blueprint:", error);
+          
+          // Handle any unexpected errors by starting fresh
+          setTitle("");
+          setPrompt("");
+          setCurrentStep('prompt');
+          setQuestions([]);
+          setResponses({});
+          setQuestionStatus({});
+          setActiveQuestionIndex(0);
+          
+          toast.error("Unexpected error", {
+            description: "Starting a new blueprint creation process"
+          });
+        } finally {
+          setIsLoading(false);
+        }
+      };
+      
+      loadTemporaryBlueprint();
+    }
+  }, [temporaryBlueprintId]);
 
   // Define an interface for the question object from API
   interface QuestionResponse {
@@ -462,115 +643,77 @@ export function CreateBlueprintModal({
   
   // Handle creating the final blueprint
   const handleCreateBlueprint = async () => {
-    // Check if all questions are answered
-    const allAnswered = questions.length > 0 && 
-                        questions.every(q => questionStatus[q.id] === "complete");
+    if (!finalData) return;
     
-    if (!allAnswered) {
-      // Save current question if there's content
-      if (currentResponse.trim()) {
-        const currentQuestion = questions[activeQuestionIndex];
-        
-        if (currentQuestion) {
-          const updatedResponses = {
-            ...responses,
-            [currentQuestion.id]: currentResponse
-          };
-          
-          setResponses(updatedResponses);
-          
-          setQuestionStatus(prev => ({
-            ...prev,
-            [currentQuestion.id]: "complete"
-          }));
-          
-          // Save final response to database
-          if (tempBlueprintId) {
-            try {
-              await saveResponseToDatabase(tempBlueprintId, currentQuestion.id.toString(), currentResponse);
-            } catch (error) {
-              console.error('Error saving final response:', error);
-              // Continue despite this error
-            }
-          }
-        }
-      }
-      
-      // Check again after saving
-      const stillMissing = questions.some(q => questionStatus[q.id] !== "complete");
-      if (stillMissing) {
-        toast.error("Please answer all questions before proceeding");
-        return;
-      }
-    }
+    setIsLoading(true);
     
     try {
-      setIsLoading(true);
+      // Determine if we're updating an existing blueprint or creating a new one
+      const isUpdating = !!createdBlueprintId;
+      console.log(isUpdating ? "Updating existing blueprint" : "Creating new blueprint");
       
-      if (!tempBlueprintId) {
-        toast.error("No temporary blueprint found");
-        setIsLoading(false);
-        return;
-      }
+      const method = isUpdating ? 'PATCH' : 'POST';
+      const endpoint = isUpdating 
+        ? `/api/blueprints/${createdBlueprintId}` 
+        : '/api/blueprints';
       
-      console.log('Finalizing blueprint with ID:', tempBlueprintId);
+      // Combine question responses into content object
+      const content = {
+        questions,
+        responses
+      };
       
-      // Get all the responses together to generate a refined search query
-      const refinedSearchQuery = await generateRefinedSearchQuery(prompt, responses);
+      // Prepare the blueprint data
+      const blueprintData = {
+        title: finalData.title,
+        search_query: finalData.search_query,
+        prompt,
+        content,
+        complexity: finalData.complexity,
+        estimated_time: finalData.estimatedTime,
+        is_temporary: false, // Important: Set is_temporary to false to mark it as permanent
+      };
       
-      // Update the blueprint with the final details
-      const updateResult = await fetch(`/api/blueprints/${tempBlueprintId}`, {
-        method: 'PATCH',
+      console.log(`Sending ${method} request to ${endpoint}:`, blueprintData);
+      
+      // Create or update the blueprint
+      const response = await fetch(endpoint, {
+        method,
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          title: prompt.split('\n')[0].slice(0, 50) || 'New Blueprint',
-          search_query: refinedSearchQuery,
-          is_temporary: false, // Mark as a permanent blueprint
-          content: { 
-            original_prompt: prompt,
-            questions: questions.map(q => ({ id: q.id, title: q.title, content: q.content })),
-            responses: responses
-          },
-        }),
+        body: JSON.stringify(blueprintData),
       });
       
-      if (!updateResult.ok) {
-        const errorText = await updateResult.text();
-        throw new Error(`Failed to update blueprint: ${updateResult.status} ${errorText}`);
+      if (!response.ok) {
+        throw new Error(`Failed to ${isUpdating ? 'update' : 'create'} blueprint: ${response.status}`);
       }
       
-      const updatedBlueprint = await updateResult.json();
-      console.log('Blueprint updated successfully:', updatedBlueprint);
+      const data = await response.json();
+      console.log(`Blueprint ${isUpdating ? 'updated' : 'created'}:`, data);
       
-      toast.success("Blueprint created successfully");
-      setIsOpen(false);
+      // If we're creating a new blueprint, update the ID
+      if (!isUpdating && data) {
+        setCreatedBlueprintId(data.id);
+      }
       
-      // Redirect to the blueprint page
-      window.location.href = `/blueprints/${tempBlueprintId}`;
+      // Show success message
+      toast.success(`Blueprint ${isUpdating ? 'updated' : 'created'} successfully!`);
       
+      // Close the modal and redirect to the blueprint page
+      if (externalOnOpenChange) {
+        externalOnOpenChange(false);
+      } else {
+        setInternalIsOpen(false);
+      }
+      
+      // Navigate to the blueprint page
+      window.location.href = `/blueprints/${data.id || createdBlueprintId}`;
     } catch (error) {
-      console.error('Error creating blueprint:', error);
-      toast.error("Failed to create blueprint", {
-        description: error instanceof Error ? error.message : "Please try again later"
-      });
+      console.error(`Error ${createdBlueprintId ? 'updating' : 'creating'} blueprint:`, error);
+      toast.error(`Failed to ${createdBlueprintId ? 'update' : 'create'} blueprint`);
     } finally {
       setIsLoading(false);
-    }
-  };
-  
-  // Helper function to generate a refined search query based on responses
-  const generateRefinedSearchQuery = async (originalPrompt: string, questionResponses: { [key: number]: string }): Promise<string> => {
-    try {
-      // For now, we'll just concatenate the prompt with responses
-      // In a real implementation, you might use an AI to refine this
-      const combinedResponses = Object.values(questionResponses).join(' ');
-        
-      return `${originalPrompt} ${combinedResponses}`.substring(0, 500);
-    } catch (error) {
-      console.error('Error generating refined search query:', error);
-      return originalPrompt;
     }
   };
 

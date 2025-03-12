@@ -8,6 +8,9 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { formatRelativeTime } from "@/utils/misc"
 import { createClientSupabase } from "@/utils/supabase"
 import { Button } from "@/components/ui/button"
+import { CreateBlueprintModal } from "./components/create-blueprint-modal"
+import { blueprintApi } from "@/utils/blueprints-api"
+import { useSearchParams } from "next/navigation"
 
 // Define Blueprint interface locally
 interface Blueprint {
@@ -44,6 +47,9 @@ export default function BlueprintsPage() {
   const [error, setError] = useState<string | null>(null)
   const [noBlueprints, setNoBlueprints] = useState(false)
   const [isCreatingSample, setIsCreatingSample] = useState(false)
+  const [temporaryBlueprintId, setTemporaryBlueprintId] = useState<string | null>(null)
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const searchParams = useSearchParams()
 
   // Log authentication status for debugging
   useEffect(() => {
@@ -54,6 +60,21 @@ export default function BlueprintsPage() {
         console.log("🔐 Blueprints Auth:", data.user ? 
           `Authenticated as ${data.user.id}` : 
           "Not authenticated");
+        
+        // If we have a user, clean up any stale temporary blueprints
+        if (data.user) {
+          try {
+            console.log("Cleaning up stale temporary blueprints...");
+            const cleanupResult = await blueprintApi.cleanupTemporaryBlueprints(data.user.id, 24);
+            if (cleanupResult.success) {
+              console.log("Successfully cleaned up stale temporary blueprints");
+            } else {
+              console.error("Failed to clean up stale temporary blueprints:", cleanupResult.error);
+            }
+          } catch (cleanupError) {
+            console.error("Error during temporary blueprint cleanup:", cleanupError);
+          }
+        }
       } catch (err) {
         console.error("Auth check error:", err);
       }
@@ -70,6 +91,16 @@ export default function BlueprintsPage() {
         // Get the authenticated user first to ensure we have a session
         const supabase = createClientSupabase();
         const { data: authData } = await supabase.auth.getUser();
+        
+        // Check if we need to handle a temporary blueprint from URL param
+        const tempId = searchParams.get('temporaryBlueprintId');
+        if (tempId) {
+          console.log("Temporary blueprint ID found in URL:", tempId);
+          // Set this ID to be handled by the modal component
+          setTemporaryBlueprintId(tempId);
+          // Open the modal immediately for temporary blueprints
+          setIsModalOpen(true);
+        }
         
         if (!authData.user) {
           console.log("No authenticated user found, showing public blueprints only");
@@ -122,12 +153,62 @@ export default function BlueprintsPage() {
               steps_count: firstBlueprint.steps_count,
               details: !!firstBlueprint.details,
               is_verified: firstBlueprint.is_verified,
-              updated_at: !!firstBlueprint.updated_at
+              updated_at: !!firstBlueprint.updated_at,
+              is_temporary: !!firstBlueprint.is_temporary
             });
           }
           
+          // Log temporary blueprints for debugging
+          const temporaryBlueprints = data.filter(blueprint => blueprint.is_temporary === true);
+          if (temporaryBlueprints.length > 0) {
+            console.log(`Found ${temporaryBlueprints.length} temporary blueprint(s):`, 
+              temporaryBlueprints.map(bp => ({
+                id: bp.id,
+                title: bp.title,
+                is_temporary: bp.is_temporary
+              }))
+            );
+          }
+          
+          // Include ALL blueprints, including temporary ones
           setBlueprints(data);
-          setNoBlueprints(false);
+          setNoBlueprints(data.length === 0);
+          
+          // Log ALL blueprints with their temporary status for debugging
+          console.log("All blueprints with temporary status:", 
+            data.map(bp => ({
+              id: bp.id,
+              title: bp.title,
+              is_temporary: bp.is_temporary || false,
+              has_temporary_in_title: bp.title?.toLowerCase().includes('temporary'),
+              mismatch: (bp.is_temporary || false) !== bp.title?.toLowerCase().includes('temporary')
+            }))
+          );
+          
+          // Log blueprints where the temporary flag doesn't match the title
+          const mismatchedBlueprints = data.filter(bp => 
+            (bp.is_temporary || false) !== bp.title?.toLowerCase().includes('temporary')
+          );
+          
+          if (mismatchedBlueprints.length > 0) {
+            console.log("⚠️ Found blueprints where 'temporary' in title doesn't match is_temporary flag:", 
+              mismatchedBlueprints.map(bp => ({
+                id: bp.id,
+                title: bp.title,
+                is_temporary: bp.is_temporary || false
+              }))
+            );
+          }
+          
+          // Just log temporary blueprints for debugging but don't automatically open the modal
+          const temporaryBlueprint = data.find((blueprint) => blueprint.is_temporary === true);
+          if (temporaryBlueprint) {
+            console.log("Found temporary blueprint:", temporaryBlueprint.id);
+            console.log("Temporary blueprint details:", JSON.stringify(temporaryBlueprint, null, 2));
+            // We no longer automatically open the modal here - only URL params should trigger it
+          } else {
+            console.log("No temporary blueprints found in the response");
+          }
         }
         
         setError(null);
@@ -140,7 +221,7 @@ export default function BlueprintsPage() {
     }
 
     fetchBlueprints()
-  }, [])
+  }, [searchParams])
 
   // Function to create a sample blueprint for debugging
   async function createSampleBlueprint() {
@@ -192,8 +273,66 @@ export default function BlueprintsPage() {
       setIsCreatingSample(false);
     }
   }
+  
+  // Function to create a temporary blueprint for testing
+  async function createTemporaryBlueprint() {
+    try {
+      setIsCreatingSample(true);
+      
+      // Get the authenticated user
+      const supabase = createClientSupabase();
+      const { data: authData } = await supabase.auth.getUser();
+      
+      if (!authData.user) {
+        alert("You need to be logged in to create a blueprint");
+        return;
+      }
+      
+      const userId = authData.user.id;
+      console.log("Creating temporary blueprint for user:", userId);
+      
+      // Create a temporary blueprint through the API
+      const response = await fetch('/api/blueprints', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title: "Temporary Blueprint Test",
+          prompt: "This is a temporary blueprint for testing",
+          content: {
+            questions: [
+              { id: 1, title: "Test Question", content: "This is a test question" }
+            ],
+            responses: {
+              "1": "This is a test response"
+            }
+          },
+          is_temporary: true, // Mark as temporary
+          visibility: "private",
+          user_id: userId
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to create temporary blueprint: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log("Temporary blueprint created:", data);
+      
+      // Reload the page to show the new blueprint
+      window.location.reload();
+    } catch (error) {
+      console.error("Error creating temporary blueprint:", error);
+      alert("Failed to create temporary blueprint. See console for details.");
+    } finally {
+      setIsCreatingSample(false);
+    }
+  }
 
   // Transform Blueprint to format expected by BlueprintsSection
+  // Now include temporary blueprints but mark them specially
   const formattedBlueprints = blueprints.map(blueprint => ({
     id: blueprint.id || `temp-${Math.random().toString(36).substring(2, 9)}`,
     title: blueprint.title || "Untitled Blueprint",
@@ -201,8 +340,32 @@ export default function BlueprintsPage() {
     details: blueprint.details || blueprint.description || "No description available",
     isVerified: blueprint.is_verified || false,
     cloneCount: blueprint.clone_count || 0,
-    lastUpdated: blueprint.updated_at ? formatRelativeDate(blueprint.updated_at) : "recently"
-  }))
+    lastUpdated: blueprint.updated_at ? formatRelativeDate(blueprint.updated_at) : "recently",
+    isTemporary: blueprint.is_temporary || false
+  }));
+  
+  // Handle clicking on a temporary blueprint to open the modal
+  const handleBlueprintClick = (blueprintId: string, isTemporary: boolean) => {
+    console.log("📣 handleBlueprintClick called with:", { blueprintId, isTemporary });
+    
+    if (isTemporary) {
+      console.log("🔶 Opening temporary blueprint in modal:", blueprintId);
+      
+      // For temporary blueprints:
+      // 1. Set the ID to be loaded by the modal component
+      setTemporaryBlueprintId(blueprintId);
+      
+      // 2. Open the modal to continue editing where the user left off
+      setIsModalOpen(true);
+      
+      console.log("🔷 Modal state updated:", { temporaryBlueprintId: blueprintId, isModalOpen: true });
+      return;
+    }
+    
+    console.log("Regular blueprint - navigation handled by Next.js Link");
+    // For regular blueprints, navigation is handled by the Next.js Link component
+    // No action needed here as the Link component will handle the routing
+  };
   
   return (
     <div className="flex flex-col w-full max-w-screen-xl mx-auto gap-8 p-4 md:p-8">
@@ -215,6 +378,13 @@ export default function BlueprintsPage() {
           <CreateBlueprintButton />
         </div>
       </div>
+      
+      {/* Create Blueprint Modal */}
+      <CreateBlueprintModal 
+        isOpen={isModalOpen}
+        onOpenChange={setIsModalOpen}
+        temporaryBlueprintId={temporaryBlueprintId}
+      />
       
       <Card className="rounded-xl">
         <CardHeader className="px-6 py-4 border-b">
@@ -252,8 +422,16 @@ export default function BlueprintsPage() {
                     variant="outline" 
                     onClick={createSampleBlueprint} 
                     disabled={isCreatingSample}
+                    className="mb-2"
                   >
                     {isCreatingSample ? 'Creating...' : 'Create Sample Blueprint (Debug)'}
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    onClick={createTemporaryBlueprint} 
+                    disabled={isCreatingSample}
+                  >
+                    {isCreatingSample ? 'Creating...' : 'Create Temporary Blueprint (Debug)'}
                   </Button>
                   <p className="text-xs text-muted-foreground mt-2">
                     This will create a sample blueprint directly in the database for testing.
@@ -262,7 +440,7 @@ export default function BlueprintsPage() {
               )}
             </div>
           ) : (
-            <BlueprintsSection blueprints={formattedBlueprints} />
+            <BlueprintsSection blueprints={formattedBlueprints} onBlueprintClick={handleBlueprintClick} />
           )}
         </CardContent>
       </Card>
