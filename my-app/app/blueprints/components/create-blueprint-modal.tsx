@@ -382,26 +382,82 @@ export function CreateBlueprintModal({
   
   // New function to save responses to the database
   const saveResponseToDatabase = async (blueprintId: string, questionId: string, response: string): Promise<void> => {
-    const saveResponse = await fetch('/api/blueprints/questions/responses', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        blueprint_id: blueprintId,
-        responses: {
-          [questionId]: response
-        }
-      }),
-    });
+    // Implement retry logic
+    const maxRetries = 3;
+    let attemptCount = 0;
+    let lastError = null;
     
-    if (!saveResponse.ok) {
-      const errorText = await saveResponse.text();
-      console.error('Failed to save response:', errorText);
-      throw new Error(`Failed to save response: ${saveResponse.status} ${errorText}`);
+    while (attemptCount < maxRetries) {
+      try {
+        attemptCount++;
+        console.log(`Attempt ${attemptCount} to save response for question ${questionId}`);
+        
+        // First check if questions record exists
+        if (attemptCount === 1) {
+          try {
+            const checkResponse = await fetch(`/api/blueprints/questions/responses?blueprint_id=${blueprintId}`, {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json',
+              }
+            });
+            
+            if (!checkResponse.ok && checkResponse.status === 404) {
+              console.warn('Questions record not found, creating placeholder in UI state');
+              // Continue - the endpoint will now create a placeholder if needed
+            }
+          } catch (checkError) {
+            console.error('Error checking for questions record:', checkError);
+            // Continue with post despite check error
+          }
+        }
+        
+        // Save the response
+        const saveResponse = await fetch('/api/blueprints/questions/responses', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            blueprint_id: blueprintId,
+            responses: {
+              [questionId]: response
+            }
+          }),
+        });
+        
+        if (!saveResponse.ok) {
+          const errorText = await saveResponse.text();
+          console.error(`Attempt ${attemptCount} failed to save response:`, errorText);
+          
+          // If it's a 404 error, we need to handle it specially
+          if (saveResponse.status === 404 && attemptCount === 1) {
+            // The endpoint now has logic to create a placeholder record if needed
+            console.warn('404 error, retrying as endpoint should now create placeholder');
+            lastError = new Error(errorText);
+            // Small delay before retrying
+            await new Promise(resolve => setTimeout(resolve, 500));
+            continue;
+          }
+          
+          throw new Error(`Failed to save response: ${saveResponse.status} ${errorText}`);
+        }
+        
+        console.log('Response saved successfully');
+        return;
+      } catch (error) {
+        console.error(`Attempt ${attemptCount} error:`, error);
+        lastError = error;
+        
+        // Add a small delay before retrying
+        if (attemptCount < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, 500 * attemptCount));
+        }
+      }
     }
     
-    console.log('Response saved successfully');
+    // If we get here, all retry attempts failed
+    throw lastError || new Error('Failed to save response after multiple attempts');
   };
   
   // Handle creating the final blueprint

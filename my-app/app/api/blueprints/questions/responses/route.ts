@@ -91,7 +91,7 @@ export async function POST(req: Request) {
     // Check if the record exists
     const { data: existingData, error: fetchError } = await supabase
       .from('blueprint_questions')
-      .select('id, responses')
+      .select('id, responses, questions')
       .eq('blueprint_id', blueprint_id)
       .single();
     
@@ -128,14 +128,54 @@ export async function POST(req: Request) {
         responses: updatedResponses
       });
     } else {
-      // No record found - this is an error case as questions should be created first
-      return NextResponse.json(
-        { 
-          error: 'No questions found for this blueprint', 
-          details: 'Questions must be generated before storing responses' 
-        },
-        { status: 404 }
-      );
+      // No record found - try to create one if we can
+      console.log('No questions record found, attempting to create one');
+      
+      // First check if blueprint exists
+      const { error: blueprintError } = await supabase
+        .from('blueprints')
+        .select('id')
+        .eq('id', blueprint_id)
+        .single();
+        
+      if (blueprintError) {
+        console.error('Error checking blueprint existence:', blueprintError);
+        return NextResponse.json(
+          { 
+            error: 'No questions found for this blueprint', 
+            details: 'Questions must be generated before storing responses' 
+          },
+          { status: 404 }
+        );
+      }
+      
+      // Blueprint exists, create a placeholder questions record
+      const { error: createError } = await supabase
+        .from('blueprint_questions')
+        .insert({
+          blueprint_id: blueprint_id,
+          questions: [], // Empty questions array
+          responses: responses, // Save the current responses
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+        
+      if (createError) {
+        console.error('Error creating placeholder questions record:', createError);
+        return NextResponse.json(
+          { error: 'Failed to create questions record' },
+          { status: 500 }
+        );
+      }
+      
+      console.log('Created placeholder questions record with responses');
+      return NextResponse.json({
+        success: true,
+        responses: responses,
+        warning: 'Created a new record without questions'
+      });
     }
   } catch (error) {
     console.error('Error in POST responses:', error);

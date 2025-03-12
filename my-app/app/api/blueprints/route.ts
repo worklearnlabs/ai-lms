@@ -3,10 +3,36 @@ import { createServiceRoleClient } from "@/utils/supabase-admin";
 import { ensureUserInDatabase } from '@/utils/user-sync';
 
 // Handler for GET /api/blueprints
-export async function GET() {
+export async function GET(request: Request) {
   // Get all blueprints that the user has access to
   try {
     const serviceClient = createServiceRoleClient();
+    
+    // In development mode, add a special query param to fetch all blueprints
+    const url = new URL(request.url);
+    const fetchAll = url.searchParams.get('fetchAll') === 'true';
+    
+    if (process.env.NODE_ENV === 'development' && fetchAll) {
+      console.log("DEBUG: Fetching ALL blueprints from database regardless of user");
+      
+      const { data: allBlueprints, error: allError } = await serviceClient
+        .from('blueprints')
+        .select('*')
+        .order('created_at', { ascending: false });
+        
+      if (allError) {
+        console.error("Error fetching all blueprints:", allError);
+        return NextResponse.json({ error: allError.message }, { status: 500 });
+      }
+      
+      console.log(`DEBUG: Found ${allBlueprints?.length || 0} total blueprints in database`);
+      if (allBlueprints && allBlueprints.length > 0) {
+        console.log("Blueprint IDs in database:", allBlueprints.map(b => b.id).join(", "));
+        console.log("Blueprint user_ids in database:", allBlueprints.map(b => b.user_id).join(", "));
+      }
+      
+      return NextResponse.json(allBlueprints || []);
+    }
     
     // Get auth session to check if user is authenticated
     const authResponse = await serviceClient.auth.getSession();

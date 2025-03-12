@@ -5,7 +5,6 @@ export interface Blueprint {
   title: string;
   description?: string;
   content: BlueprintContent;
-  status: 'draft' | 'in_progress' | 'completed';
   isAutomated: boolean;
   createdAt: Date;
   updatedAt: Date;

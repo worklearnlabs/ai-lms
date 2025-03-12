@@ -113,7 +113,6 @@ export const blueprintApi = {
         complexity: data.complexity || null,
         estimated_time: data.estimated_time || null,
         prompt: data.prompt || null,
-        status: 'draft',
         is_verified: false,
         user_id: data.user_id,
         is_temporary: data.is_temporary || false,

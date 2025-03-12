@@ -3,7 +3,6 @@ import { ContentItem } from "@/app/blueprints/[id]/types";
 export interface Blueprint {
   id: string;
   title: string;
-  status: 'draft' | 'in_progress' | 'completed' | 'failed';
   prompt: string;
   content: ContentItem[];
   isVerified: boolean;
@@ -23,7 +22,6 @@ export interface BlueprintCreateInput {
 
 export interface BlueprintUpdateInput {
   title?: string;
-  status?: 'draft' | 'in_progress' | 'completed' | 'failed';
   prompt?: string;
   content?: ContentItem[];
   isVerified?: boolean;
@@ -38,7 +36,6 @@ export async function getBlueprints(userId: string): Promise<Blueprint[]> {
     {
       id: "1",
       title: "LinkedIn Data Scraper",
-      status: "completed",
       prompt: "Run a daily search of LinkedIn posts for any post that has the keywords \"venture studio\" or \"venture studios\". I only want posts from the last 24 hours. I want the name of the poster, post content, # of comments, timestamp, date stamp and post URL. Once I have that information I want an agent to summarize each post and put it all in a Google Doc.",
       content: getMockLinkedInScraperContent(),
       isVerified: true,
@@ -52,7 +49,6 @@ export async function getBlueprints(userId: string): Promise<Blueprint[]> {
     {
       id: "2",
       title: "Customer Support Chatbot",
-      status: "draft",
       prompt: "Create a customer support chatbot that can handle basic questions about our products, process returns, and escalate to human agents when needed.",
       content: [],
       isVerified: false,
@@ -66,7 +62,6 @@ export async function getBlueprints(userId: string): Promise<Blueprint[]> {
     {
       id: "3",
       title: "Content Recommendation Engine",
-      status: "in_progress",
       prompt: "Build a recommendation engine that analyzes user behavior to suggest personalized content and products.",
       content: [],
       isVerified: true,
@@ -90,7 +85,6 @@ export async function createBlueprint(input: BlueprintCreateInput): Promise<Blue
   return {
     id: Math.random().toString(36).substring(2, 9),
     title: input.title,
-    status: "draft",
     prompt: input.prompt,
     content: [],
     isVerified: false,
@@ -173,10 +167,9 @@ export async function regenerateBlueprint(id: string, prompt: string): Promise<B
     };
   } catch (error) {
     console.error("Error regenerating blueprint:", error);
-    // If the API call fails, return the existing blueprint with a status update
+    // If the API call fails, return the existing blueprint with an update
     return {
       ...blueprint,
-      status: 'failed',
       updatedAt: new Date().toISOString(),
     };
   }

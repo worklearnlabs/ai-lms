@@ -7,6 +7,7 @@ import { CreateBlueprintButton } from "./components/create-blueprint-button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatRelativeTime } from "@/utils/misc"
 import { createClientSupabase } from "@/utils/supabase"
+import { Button } from "@/components/ui/button"
 
 // Define Blueprint interface locally
 interface Blueprint {
@@ -29,6 +30,7 @@ interface Blueprint {
   complexity?: string;
   estimated_time?: string;
   is_temporary?: boolean;
+  description?: string;
 }
 
 // Create a wrapper function to handle string dates
@@ -41,6 +43,7 @@ export default function BlueprintsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [noBlueprints, setNoBlueprints] = useState(false)
+  const [isCreatingSample, setIsCreatingSample] = useState(false)
 
   // Log authentication status for debugging
   useEffect(() => {
@@ -64,12 +67,32 @@ export default function BlueprintsPage() {
         setLoading(true)
         console.log("Starting to fetch blueprints from API...");
 
-        // Use the existing API endpoint that handles user mapping properly
-        const response = await fetch('/api/blueprints', {
+        // Get the authenticated user first to ensure we have a session
+        const supabase = createClientSupabase();
+        const { data: authData } = await supabase.auth.getUser();
+        
+        if (!authData.user) {
+          console.log("No authenticated user found, showing public blueprints only");
+        } else {
+          console.log("Fetching blueprints for authenticated user:", authData.user.id);
+        }
+
+        // In development mode, we'll add a query param to fetch all blueprints to diagnose issues
+        const isDevelopment = process.env.NODE_ENV === 'development';
+        const apiUrl = isDevelopment 
+          ? '/api/blueprints?fetchAll=true' 
+          : '/api/blueprints';
+          
+        console.log(`Using API URL: ${apiUrl}`);
+
+        // Use the API endpoint that handles user mapping properly
+        const response = await fetch(apiUrl, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
           },
+          // Make sure we're using fresh data and not a cached response
+          cache: 'no-store'
         });
         
         console.log("API response status:", response.status);
@@ -82,11 +105,27 @@ export default function BlueprintsPage() {
         console.log("Fetched blueprints from API:", data);
         console.log("Number of blueprints received:", Array.isArray(data) ? data.length : "Not an array");
         
-        if (!data || data.length === 0) {
+        if (!data || !Array.isArray(data) || data.length === 0) {
           console.log("No blueprints found in API response");
           setBlueprints([]);
           setNoBlueprints(true);
         } else {
+          // Log the first blueprint structure to help diagnose formatting issues
+          if (data.length > 0) {
+            console.log("First blueprint structure:", JSON.stringify(data[0], null, 2));
+            
+            // Check if it has the necessary fields for display
+            const firstBlueprint = data[0];
+            console.log("Blueprint has required fields:", {
+              id: !!firstBlueprint.id,
+              title: !!firstBlueprint.title,
+              steps_count: firstBlueprint.steps_count,
+              details: !!firstBlueprint.details,
+              is_verified: firstBlueprint.is_verified,
+              updated_at: !!firstBlueprint.updated_at
+            });
+          }
+          
           setBlueprints(data);
           setNoBlueprints(false);
         }
@@ -103,15 +142,66 @@ export default function BlueprintsPage() {
     fetchBlueprints()
   }, [])
 
+  // Function to create a sample blueprint for debugging
+  async function createSampleBlueprint() {
+    try {
+      setIsCreatingSample(true);
+      
+      // Get the authenticated user
+      const supabase = createClientSupabase();
+      const { data: authData } = await supabase.auth.getUser();
+      
+      if (!authData.user) {
+        alert("You need to be logged in to create a blueprint");
+        return;
+      }
+      
+      const userId = authData.user.id;
+      console.log("Creating sample blueprint for user:", userId);
+      
+      // Create a sample blueprint through the API
+      const response = await fetch('/api/blueprints', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title: "Sample LinkedIn Data Scraper",
+          prompt: "Create a LinkedIn post scraper for AI news",
+          content: {}, // Empty content to start
+          search_query: "How to build a LinkedIn scraper for AI content using JavaScript",
+          visibility: "private",
+          skill_level: "beginner",
+          learning_objective: "Learn automation with APIs"
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to create sample blueprint: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log("Sample blueprint created:", data);
+      
+      // Reload the page to show the new blueprint
+      window.location.reload();
+    } catch (error) {
+      console.error("Error creating sample blueprint:", error);
+      alert("Failed to create sample blueprint. See console for details.");
+    } finally {
+      setIsCreatingSample(false);
+    }
+  }
+
   // Transform Blueprint to format expected by BlueprintsSection
   const formattedBlueprints = blueprints.map(blueprint => ({
-    id: blueprint.id,
-    title: blueprint.title,
+    id: blueprint.id || `temp-${Math.random().toString(36).substring(2, 9)}`,
+    title: blueprint.title || "Untitled Blueprint",
     stepsCount: blueprint.steps_count || 0,
-    details: blueprint.details || '',
+    details: blueprint.details || blueprint.description || "No description available",
     isVerified: blueprint.is_verified || false,
     cloneCount: blueprint.clone_count || 0,
-    lastUpdated: formatRelativeDate(blueprint.updated_at || new Date().toISOString())
+    lastUpdated: blueprint.updated_at ? formatRelativeDate(blueprint.updated_at) : "recently"
   }))
   
   return (
@@ -156,6 +246,20 @@ export default function BlueprintsPage() {
               <p className="text-muted-foreground mb-6">
                 You don&apos;t have any blueprints yet. Get started by creating your first blueprint.
               </p>
+              {process.env.NODE_ENV === 'development' && (
+                <div className="mt-4">
+                  <Button 
+                    variant="outline" 
+                    onClick={createSampleBlueprint} 
+                    disabled={isCreatingSample}
+                  >
+                    {isCreatingSample ? 'Creating...' : 'Create Sample Blueprint (Debug)'}
+                  </Button>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    This will create a sample blueprint directly in the database for testing.
+                  </p>
+                </div>
+              )}
             </div>
           ) : (
             <BlueprintsSection blueprints={formattedBlueprints} />

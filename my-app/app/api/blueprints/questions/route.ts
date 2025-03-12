@@ -56,6 +56,51 @@ export async function POST(req: Request) {
     const { prompt, skill_level, learning_objective, blueprint_id } = validationResult.data;
     console.log('Processing prompt:', prompt);
     
+    // If a blueprint_id is provided, verify it exists
+    if (blueprint_id) {
+      try {
+        // Get Supabase credentials for API access
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+        
+        if (!supabaseUrl || !supabaseKey) {
+          console.warn('Missing Supabase URL or service role key, continuing without verification');
+        } else {
+          // Check if the blueprint exists
+          console.log(`Verifying blueprint_id ${blueprint_id} exists before processing`);
+          
+          const blueprintCheckResponse = await fetch(
+            `${supabaseUrl}/rest/v1/blueprints?id=eq.${blueprint_id}&select=id`,
+            {
+              headers: {
+                'Content-Type': 'application/json',
+                'apikey': supabaseKey,
+                'Authorization': `Bearer ${supabaseKey}`
+              }
+            }
+          );
+          
+          if (!blueprintCheckResponse.ok) {
+            console.error('Error checking blueprint:', await blueprintCheckResponse.text());
+            // Continue despite error - we'll try to generate questions anyway
+          } else {
+            const blueprintData = await blueprintCheckResponse.json();
+            if (!blueprintData || blueprintData.length === 0) {
+              console.error('Blueprint not found with ID:', blueprint_id);
+              return NextResponse.json(
+                { error: 'Blueprint not found' },
+                { status: 404 }
+              );
+            }
+            console.log('Blueprint verified, continuing with question generation');
+          }
+        }
+      } catch (verifyError) {
+        console.error('Error verifying blueprint:', verifyError);
+        // Continue despite error - we can still generate questions
+      }
+    }
+
     // Create system prompt for the AI
     const systemPrompt = `
 You are an AI educator and consultant assistant.
@@ -464,7 +509,10 @@ You MUST respond in JSON format with a blueprint title and an array of question 
               console.log('Creating new record');
               const body: Record<string, unknown> = {
                 blueprint_id,
-                questions: finalQuestions
+                questions: finalQuestions,
+                responses: {}, // Initialize with empty responses object to prevent null responses
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
               };
               
               response = await fetch(
@@ -479,6 +527,24 @@ You MUST respond in JSON format with a blueprint title and an array of question 
             
             if (response.ok) {
               console.log('Questions stored successfully');
+              
+              // Verify the record was created properly
+              const verifyResponse = await fetch(
+                `${questionsUrl}?blueprint_id=eq.${blueprint_id}&select=*`,
+                { headers }
+              );
+              
+              if (verifyResponse.ok) {
+                const records = await verifyResponse.json();
+                if (records.length > 0) {
+                  console.log('Verified questions record:', records[0].id);
+                  console.log('Questions count:', records[0].questions?.length || 0);
+                } else {
+                  console.error('Questions record verification failed: Record not found after creation');
+                }
+              } else {
+                console.error('Questions record verification failed:', await verifyResponse.text());
+              }
             } else {
               const error = await response.text();
               console.error('Error storing questions:', error);

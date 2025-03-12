@@ -38,7 +38,6 @@ interface Blueprint {
   complexity?: 'low' | 'medium' | 'high';
   estimated_time?: string;
   steps_count?: number;
-  status: 'draft' | 'in_progress' | 'completed' | 'failed';
   created_at: string;
   updated_at: string;
 }

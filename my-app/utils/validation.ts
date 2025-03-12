@@ -30,7 +30,6 @@ export type BlueprintCreateRequest = z.infer<typeof BlueprintCreateSchema>;
  */
 export const BlueprintUpdateSchema = z.object({
   title: z.string().optional(),
-  status: z.enum(['draft', 'in_progress', 'completed', 'failed']).optional(),
   prompt: z.string().optional(),
   content: z.array(
     z.object({
