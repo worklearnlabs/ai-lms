@@ -6,6 +6,7 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/sonner"
 import Script from "next/script"
 import { debugUserData, updateUserName, refreshUserData, syncUserAccount } from '@/utils/auth'
+import { testClientAuth } from '@/utils/tests'
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -15,6 +16,7 @@ interface ExtendedWindow extends Window {
   updateUserName?: typeof updateUserName;
   refreshUserData?: typeof refreshUserData;
   syncUserAccount?: typeof syncUserAccount;
+  testClientAuth?: typeof testClientAuth;
 }
 
 export const metadata: Metadata = {
@@ -36,6 +38,7 @@ export default function RootLayout({
     (window as ExtendedWindow).updateUserName = updateUserName;
     (window as ExtendedWindow).refreshUserData = refreshUserData;
     (window as ExtendedWindow).syncUserAccount = syncUserAccount;
+    (window as ExtendedWindow).testClientAuth = testClientAuth;
   }
 
   return (

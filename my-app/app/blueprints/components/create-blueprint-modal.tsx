@@ -164,7 +164,9 @@ export function CreateBlueprintModal({
       setExamplesError(null);
       
       console.log('Fetching dynamic examples...');
-      const response = await fetch('/api/blueprints/examples');
+      const response = await fetch('/api/blueprints/examples', {
+        credentials: 'include'
+      });
       console.log('Examples API Response Status:', response.status);
       
       if (!response.ok) {
@@ -259,7 +261,10 @@ export function CreateBlueprintModal({
       const loadTemporaryBlueprint = async () => {
         try {
           setIsLoading(true);
-          console.log("Loading temporary blueprint:", temporaryBlueprintId);
+          console.log("%c[DEBUG] Loading blueprint", "background: #3498db; color: white; padding: 2px 4px; border-radius: 2px;", {
+            id: temporaryBlueprintId,
+            timestamp: new Date().toISOString(),
+          });
           
           // Helper function to start a fresh blueprint
           const startFreshBlueprint = (title: string, description: string) => {
@@ -277,17 +282,6 @@ export function CreateBlueprintModal({
               description: description
             });
           };
-          
-          // First validate the UUID format
-          const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-          if (!uuidRegex.test(temporaryBlueprintId)) {
-            console.error(`Invalid UUID format for blueprint ID: ${temporaryBlueprintId}`);
-            startFreshBlueprint(
-              "Your previous draft couldn't be loaded",
-              "Invalid blueprint ID format - starting a new blueprint creation process"
-            );
-            return;
-          }
           
           // Define the blueprint data interface
           interface BlueprintData {
@@ -373,73 +367,272 @@ export function CreateBlueprintModal({
             }
           };
           
-          // Try both with and without maybeSingle() to handle both possible formats
-          try {
-            // First check if blueprint exists at all
-            const blueprintCheckResponse = await fetch(`/api/blueprints/${temporaryBlueprintId}`, {
-              method: 'HEAD'
-            });
-            
-            if (blueprintCheckResponse.status === 404) {
-              console.error(`Blueprint with ID ${temporaryBlueprintId} not found`);
-              startFreshBlueprint(
-                "Your previous draft couldn't be loaded",
-                "Blueprint not found - starting a new blueprint creation process"
-              );
-              return;
+          // First validate the UUID format
+          const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+          if (!uuidRegex.test(temporaryBlueprintId!)) {
+            console.error(`Invalid UUID format for blueprint ID: ${temporaryBlueprintId}`);
+            startFreshBlueprint(
+              "Your previous draft couldn't be loaded",
+              "Invalid blueprint ID format - starting a new blueprint creation process"
+            );
+            return;
+          }
+          
+          // First check if blueprint exists at all with stronger credentials
+          console.log("%c[DEBUG] Checking blueprint existence with HEAD request", "background: #f39c12; color: white; padding: 2px 4px; border-radius: 2px;", temporaryBlueprintId);
+          
+          const blueprintCheckResponse = await fetch(`/api/blueprints/${temporaryBlueprintId}`, {
+            method: 'HEAD',
+            credentials: 'include',
+            headers: {
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              'Pragma': 'no-cache',
+              'X-Requested-With': 'XMLHttpRequest',
+              'X-Debug-Client': 'create-blueprint-modal'
             }
-            
-            // Then fetch the full blueprint details
-            const blueprintResponse = await fetch(`/api/blueprints/${temporaryBlueprintId}`);
-            
-            if (!blueprintResponse.ok) {
-              throw new Error(`Failed to fetch blueprint: ${blueprintResponse.status}`);
+          });
+          
+          console.log("%c[DEBUG] HEAD response", "background: #f39c12; color: white; padding: 2px 4px; border-radius: 2px;", {
+            status: blueprintCheckResponse.status,
+            ok: blueprintCheckResponse.ok,
+            statusText: blueprintCheckResponse.statusText,
+            headers: {
+              found: blueprintCheckResponse.headers.get('X-Blueprint-Found'),
+              type: blueprintCheckResponse.headers.get('X-Blueprint-Type'),
+              created: blueprintCheckResponse.headers.get('X-Blueprint-Created'),
+              user: blueprintCheckResponse.headers.get('X-Blueprint-User'),
+              error: blueprintCheckResponse.headers.get('X-Error'),
+              debugInfo: blueprintCheckResponse.headers.get('X-Debug-Info')
             }
+          });
+          
+          if (blueprintCheckResponse.status === 404) {
+            console.error(`Blueprint with ID ${temporaryBlueprintId} not found`);
             
-            const data = await blueprintResponse.json();
-            
-            // Also set the temporary blueprint ID in state to match what was loaded
-            setTempBlueprintId(temporaryBlueprintId);
-            
-            processLoadedBlueprint(data);
-            
-            // Check for questions data for this blueprint
+            // Try an alternative fetch to debug if this blueprint exists
             try {
-              const questionsResponse = await fetch(`/api/blueprints/questions/responses?blueprint_id=${temporaryBlueprintId}`);
+              const recentBlueprintsResponse = await fetch('/api/blueprints/recent', {
+                credentials: 'include',
+                headers: {
+                  'Cache-Control': 'no-cache',
+                  'X-Debug-Client': 'create-blueprint-modal'
+                }
+              });
               
-              if (questionsResponse.ok) {
-                const questionsData = await questionsResponse.json();
-                console.log("Loaded additional questions data:", questionsData);
+              if (recentBlueprintsResponse.ok) {
+                const recentBlueprints = await recentBlueprintsResponse.json();
+                console.log('Recent blueprints available:', recentBlueprints.map((bp: {id: string, created_at: string}) => 
+                  `${bp.id} (created: ${bp.created_at})`));
                 
-                if (questionsData.questions && questionsData.questions.length > 0) {
-                  setQuestions(questionsData.questions);
-                  
-                  if (questionsData.responses) {
-                    setResponses(questionsData.responses);
-                    
-                    // Parse the status from responses
-                    const questionStatusMap: QuestionStatusMap = {};
-                    questionsData.questions.forEach((question: { id: number }) => {
-                      questionStatusMap[question.id] = 
-                        questionsData.responses[question.id] ? "complete" : "pending";
-                    });
-                    setQuestionStatus(questionStatusMap);
-                  }
+                // Check if our blueprint is among them
+                const matchingBlueprint = recentBlueprints.find((bp: {id: string}) => bp.id === temporaryBlueprintId);
+                if (matchingBlueprint) {
+                  console.log('Blueprint found in recent list but not directly accessible!', matchingBlueprint);
                 }
               }
-            } catch (questionsError) {
-              console.error("Error loading questions data:", questionsError);
-              // Continue with what we have
+            } catch (recentError) {
+              console.error('Failed to fetch recent blueprints for debugging:', recentError);
             }
-          } catch (error) {
-            console.error('Error loading blueprint:', error);
+            
             startFreshBlueprint(
-              "Your previous draft couldn't be loaded", 
-              "Error loading data - starting a new blueprint creation process"
+              "Your previous draft couldn't be loaded",
+              "Blueprint not found - starting a new blueprint creation process"
             );
+            return;
+          }
+          
+          // Then fetch the full blueprint details with stronger credentials
+          console.log("%c[DEBUG] Fetching full blueprint details", "background: #2ecc71; color: white; padding: 2px 4px; border-radius: 2px;", temporaryBlueprintId);
+          
+          // Add diagnostic info to URL to help debug and prevent caching
+          const timestamp = new Date().getTime();
+          
+          const blueprintResponse = await fetch(`/api/blueprints/${temporaryBlueprintId}?_t=${timestamp}`, {
+            method: 'GET',
+            credentials: 'include',
+            headers: {
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              'Pragma': 'no-cache',
+              'X-Requested-With': 'XMLHttpRequest',
+              'X-Debug-Client': 'create-blueprint-modal'
+            }
+          });
+          
+          console.log("%c[DEBUG] GET response", "background: #2ecc71; color: white; padding: 2px 4px; border-radius: 2px;", {
+            status: blueprintResponse.status,
+            ok: blueprintResponse.ok,
+            statusText: blueprintResponse.statusText,
+            contentType: blueprintResponse.headers.get('Content-Type'),
+            contentLength: blueprintResponse.headers.get('Content-Length')
+          });
+          
+          if (!blueprintResponse.ok) {
+            // Try to get the detailed error message from the response
+            let errorDetails = "Unknown error";
+            try {
+              const errorData = await blueprintResponse.json();
+              errorDetails = errorData.details || errorData.error || blueprintResponse.statusText;
+              console.error('Blueprint fetch error details:', errorData);
+            } catch (parseError) {
+              console.error('Error parsing error response:', parseError);
+              // If parsing fails, try to get the text instead
+              try {
+                errorDetails = await blueprintResponse.text();
+                console.error('Error text:', errorDetails);
+              } catch {
+                // If all else fails, just use the status text
+                errorDetails = blueprintResponse.statusText;
+              }
+            }
+            
+            // Try a fallback approach using the debug endpoint
+            console.log("Main API call failed. Trying emergency fallback approach...");
+            try {
+              const fallbackResponse = await fetch(`/api/debug/blueprint-check?id=${temporaryBlueprintId}`, {
+                credentials: 'include',
+                headers: {
+                  'Cache-Control': 'no-cache',
+                  'X-Debug-Client': 'create-blueprint-modal'
+                }
+              });
+              
+              if (fallbackResponse.ok) {
+                const debugInfo = await fallbackResponse.json();
+                console.log("Debug info received:", debugInfo);
+                
+                // Check if the blueprint exists using the service role access
+                if (debugInfo.exists_in_db && debugInfo.service_role_access.success) {
+                  console.log("Blueprint found in database via service role. Attempting to load it...");
+                  
+                  // Try the direct access endpoint for full data
+                  try {
+                    const directResponse = await fetch(`/api/blueprints/direct-access?id=${temporaryBlueprintId}`, {
+                      credentials: 'include',
+                      headers: {
+                        'Cache-Control': 'no-cache',
+                        'X-Debug-Client': 'create-blueprint-modal',
+                        'X-Emergency-Fallback': 'true'
+                      }
+                    });
+                    
+                    if (directResponse.ok) {
+                      const directData = await directResponse.json();
+                      console.log("Successfully fetched blueprint via direct access", directData);
+                      
+                      // Set the blueprint data
+                      setTempBlueprintId(temporaryBlueprintId);
+                      processLoadedBlueprint(directData);
+                      
+                      // Show a toast to inform the user
+                      toast.success("Blueprint loaded successfully", {
+                        description: "Using emergency direct access mode"
+                      });
+                      
+                      return;
+                    } else {
+                      console.error("Direct access failed:", await directResponse.text());
+                    }
+                  } catch (directError) {
+                    console.error("Error in direct access:", directError);
+                  }
+                  
+                  // If direct access failed, fall back to using the limited service data
+                  const serviceData = debugInfo.service_role_access.data;
+                  if (serviceData) {
+                    console.log("Using service data as fallback", serviceData);
+                    
+                    // Create a basic blueprint object with available data
+                    const fallbackData = {
+                      id: serviceData.id,
+                      title: serviceData.title || "Recovered Blueprint",
+                      prompt: "",
+                      description: "",
+                      is_temporary: serviceData.is_temporary
+                    };
+                    
+                    // Save it to state
+                    setTempBlueprintId(temporaryBlueprintId);
+                    processLoadedBlueprint(fallbackData);
+                    
+                    // Show a toast to inform the user
+                    toast.info("Blueprint recovered with limited data", {
+                      description: "Some data was recovered, but you may need to re-answer some questions."
+                    });
+                    
+                    return;
+                  }
+                }
+              } else {
+                console.error("Fallback approach also failed:", await fallbackResponse.text());
+              }
+            } catch (fallbackError) {
+              console.error("Error in fallback approach:", fallbackError);
+            }
+            
+            throw new Error(`Failed to fetch blueprint: ${blueprintResponse.status} - ${errorDetails}`);
+          }
+          
+          const data = await blueprintResponse.json();
+          console.log("%c[DEBUG] Blueprint data received", "background: #2ecc71; color: white; padding: 2px 4px; border-radius: 2px;", {
+            dataReceived: !!data,
+            dataType: typeof data,
+            hasID: !!data?.id,
+            id: data?.id,
+            title: data?.title?.substring(0, 30),
+            fields: data ? Object.keys(data) : []
+          });
+          
+          // Also set the temporary blueprint ID in state to match what was loaded
+          setTempBlueprintId(temporaryBlueprintId);
+          
+          processLoadedBlueprint(data);
+          
+          // Check for questions data for this blueprint
+          try {
+            console.log("%c[DEBUG] Fetching questions data", "background: #8e44ad; color: white; padding: 2px 4px; border-radius: 2px;", temporaryBlueprintId);
+            
+            const questionsResponse = await fetch(`/api/blueprints/questions/responses?blueprint_id=${temporaryBlueprintId}`, {
+              method: 'GET',
+              credentials: 'include',
+              headers: {
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'X-Requested-With': 'XMLHttpRequest'
+              }
+            });
+            
+            console.log("%c[DEBUG] Questions response", "background: #8e44ad; color: white; padding: 2px 4px; border-radius: 2px;", {
+              status: questionsResponse.status,
+              ok: questionsResponse.ok,
+              contentType: questionsResponse.headers.get('Content-Type')
+            });
+            
+            if (questionsResponse.ok) {
+              const questionsData = await questionsResponse.json();
+              console.log("Loaded additional questions data:", questionsData);
+              
+              if (questionsData.questions && questionsData.questions.length > 0) {
+                setQuestions(questionsData.questions);
+                
+                if (questionsData.responses) {
+                  setResponses(questionsData.responses);
+                  
+                  // Parse the status from responses
+                  const questionStatusMap: QuestionStatusMap = {};
+                  questionsData.questions.forEach((question: { id: number }) => {
+                    questionStatusMap[question.id] = 
+                      questionsData.responses[question.id] ? "complete" : "pending";
+                  });
+                  setQuestionStatus(questionStatusMap);
+                }
+              }
+            }
+          } catch (questionsError) {
+            console.error("Error loading questions data:", questionsError);
+            // Continue with what we have
           }
         } catch (error) {
-          console.error('Failed to load blueprint:', error);
+          console.error('Error loading blueprint:', error);
           toast.error("Failed to load your draft", {
             description: "Starting a new blueprint creation process"
           });
@@ -515,6 +708,7 @@ export function CreateBlueprintModal({
             'Content-Type': 'application/json',
             'Cache-Control': 'no-cache'
           },
+          credentials: 'include',
           body: JSON.stringify({
             blueprint_id: blueprintId,
             responses: {
@@ -678,6 +872,7 @@ export function CreateBlueprintModal({
         headers: {
           'Content-Type': 'application/json',
         },
+        credentials: 'include',
         body: JSON.stringify(blueprintData),
       });
       
@@ -746,6 +941,7 @@ export function CreateBlueprintModal({
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(generateData),
+        credentials: 'include'
       });
       
       if (!response.ok) {
@@ -1048,6 +1244,7 @@ export function CreateBlueprintModal({
       // Fetch complete blueprint data from the API
       const verifyResponse = await fetch(`/api/blueprints/${tempBlueprintId}`, {
         method: 'GET',
+        credentials: 'include'
       });
       
       // Parse response data if available
@@ -1070,6 +1267,7 @@ export function CreateBlueprintModal({
       try {
         const dbResponse = await fetch(`/api/admin/debug/blueprint?id=${tempBlueprintId}`, {
           method: 'GET',
+          credentials: 'include'
         });
         
         if (dbResponse.ok) {
@@ -1165,6 +1363,7 @@ export function CreateBlueprintModal({
             'Content-Type': 'application/json',
             'Cache-Control': 'no-cache'
           },
+          credentials: 'include',
           body: JSON.stringify({
             title: prompt.split('\n')[0].slice(0, 50) || 'Draft Blueprint',
             prompt: prompt, // Include the prompt but not as search_query
@@ -1222,6 +1421,7 @@ export function CreateBlueprintModal({
         'Content-Type': 'application/json',
         'Cache-Control': 'no-cache'
       },
+      credentials: 'include',
       body: JSON.stringify({
         prompt: userPrompt,
         blueprint_id: blueprintId

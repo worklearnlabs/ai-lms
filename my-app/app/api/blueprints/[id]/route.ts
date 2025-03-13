@@ -2,11 +2,12 @@ import { NextResponse } from "next/server";
 import { z } from 'zod';
 import { createStandardServerClient } from '@/utils/supabase';
 import { updateBlueprint, regenerateBlueprint } from "@/utils/models";
+import { withRouteAuth } from '@/utils/route-handlers';
 
 // Define validation schema for PATCH requests
 const BlueprintUpdateSchema = z.object({
   title: z.string().min(1).optional(),
-  description: z.string().optional(),
+  details: z.string().optional(),
   search_query: z.string().optional(),
   is_verified: z.boolean().optional(),
   is_temporary: z.boolean().optional(),
@@ -49,27 +50,32 @@ export async function GET(
       );
     }
     
-    // Get the blueprint from Supabase - simple approach
-    const supabase = createStandardServerClient();
+    // Get authenticated Supabase client using our withRouteAuth utility
+    const auth = await withRouteAuth(req);
+    console.log(`GET /api/blueprints/${id} - Auth status: ${auth.isAuthenticated ? 'Authenticated' : 'Not authenticated'}`);
+    
+    // Always use a Supabase client - either authenticated or standard
+    const supabase = auth.isAuthenticated && auth.supabase 
+      ? auth.supabase
+      : createStandardServerClient();
+      
     console.log(`Querying Supabase for blueprint with ID: ${id}`);
     
-    // First check if this is a temporary blueprint - it might have been deleted
-    const { data: tempCheck, error: tempCheckError } = await supabase
+    // Direct query using createStandardServerClient to bypass auth issues
+    const directClient = createStandardServerClient();
+    console.log(`Also trying direct client query as fallback for ID: ${id}`);
+    
+    // First try direct query to verify record exists
+    const { data: directCheckData, error: directCheckError } = await directClient
       .from('blueprints')
-      .select('id, is_temporary')
+      .select('id, is_temporary, created_at')
       .eq('id', id)
       .maybeSingle();
       
-    if (tempCheckError) {
-      console.error(`Error checking blueprint ${id}:`, tempCheckError);
-    } else if (!tempCheck) {
-      console.log(`Blueprint with ID ${id} not found in database`);
-      return NextResponse.json(
-        { error: 'Blueprint not found', details: 'No blueprint with this ID exists in the database' },
-        { status: 404 }
-      );
-    } else if (tempCheck.is_temporary) {
-      console.log(`Blueprint ${id} is marked as temporary`);
+    if (directCheckData) {
+      console.log(`Direct query found blueprint ${id}, created_at: ${directCheckData.created_at}, is_temporary: ${directCheckData.is_temporary}`);
+    } else {
+      console.log(`Direct query could not find blueprint ${id}, error:`, directCheckError);
     }
     
     // Try to fetch with details directly
@@ -84,6 +90,27 @@ export async function GET(
     
     if (error) {
       console.error(`Error fetching blueprint ${id}:`, error);
+      
+      // Try again with direct client if original query failed but direct check worked
+      if (directCheckData) {
+        console.log(`Trying alternative fetch for ${id} using direct client`);
+        
+        const { data: altBlueprint, error: altError } = await directClient
+          .from('blueprints')
+          .select(`
+            *,
+            steps:blueprint_steps(*)
+          `)
+          .eq('id', id)
+          .single();
+          
+        if (!altError && altBlueprint) {
+          console.log(`Successfully retrieved blueprint ${id} using direct client`);
+          return NextResponse.json(altBlueprint);
+        } else {
+          console.error(`Alternative fetch for ${id} also failed:`, altError);
+        }
+      }
       
       // Provide more specific error messages based on the error code
       if (error.code === 'PGRST116') {
@@ -405,17 +432,48 @@ export async function HEAD(request: Request, context: { params: { id: string } }
       });
     }
     
-    // Get the blueprint from Supabase - simple approach
-    const supabase = createStandardServerClient();
+    // Get authenticated Supabase client using our withRouteAuth utility
+    const auth = await withRouteAuth(request);
+    console.log(`HEAD request for blueprint ${id} - Auth status: ${auth.isAuthenticated ? 'Authenticated' : 'Not authenticated'}`);
+    
+    // Try multiple clients to find the blueprint
+    const directClient = createStandardServerClient();
+    console.log(`Using direct client to ensure we can find blueprint ${id}`);
     
     // Check if the blueprint exists - also get is_temporary field to log it
-    const { data, error } = await supabase
-      .from('blueprints')
-      .select('id, is_temporary, created_at')
-      .eq('id', id)
-      .maybeSingle(); // Use maybeSingle to avoid errors for non-existent IDs
+    let data = null;
+    let error = null;
     
-    if (error) {
+    // First try authenticated client if available
+    if (auth.isAuthenticated && auth.supabase) {
+      const result = await auth.supabase
+        .from('blueprints')
+        .select('id, is_temporary, created_at, user_id')
+        .eq('id', id)
+        .maybeSingle();
+        
+      data = result.data;
+      error = result.error;
+      
+      console.log(`Auth client query for ${id}: ${data ? 'Found' : 'Not found'}`);
+    }
+    
+    // If not found with auth client, try direct client
+    if (!data) {
+      console.log(`Trying direct client for blueprint ${id}`);
+      const result = await directClient
+        .from('blueprints')
+        .select('id, is_temporary, created_at, user_id')
+        .eq('id', id)
+        .maybeSingle();
+        
+      data = result.data;
+      error = result.error;
+      
+      console.log(`Direct client query for ${id}: ${data ? 'Found' : 'Not found'}`);
+    }
+    
+    if (error && error.code !== 'PGRST116') {
       console.error(`Database error in HEAD request for blueprint ${id}:`, error);
       return new Response(null, { 
         status: 500,
@@ -431,7 +489,8 @@ export async function HEAD(request: Request, context: { params: { id: string } }
       
       // Log the result from a more direct query to help debug
       try {
-        const { count, error: countError } = await supabase
+        // Try with a count query first
+        const { count, error: countError } = await directClient
           .from('blueprints')
           .select('id', { count: 'exact', head: true })
           .eq('id', id);
@@ -441,13 +500,28 @@ export async function HEAD(request: Request, context: { params: { id: string } }
         } else {
           console.log(`Count query result for ID ${id}: ${count}`);
         }
+        
+        // Also try raw SQL query if possible
+        try {
+          const { data: rawData, error: rawError } = await directClient.rpc('check_blueprint_exists', { 
+            blueprint_id: id 
+          });
+          
+          if (rawError) {
+            console.error('Error in raw check:', rawError);
+          } else {
+            console.log(`Raw blueprint check result:`, rawData);
+          }
+        } catch (rpcError) {
+          console.log('RPC check not available:', rpcError);
+        }
       } catch (debugError) {
         console.error(`Error in debug count query:`, debugError);
       }
       
       // Check recent blueprints to help debug
       try {
-        const { data: recentBlueprints, error: recentError } = await supabase
+        const { data: recentBlueprints, error: recentError } = await directClient
           .from('blueprints')
           .select('id, created_at')
           .order('created_at', { ascending: false })
@@ -472,6 +546,18 @@ export async function HEAD(request: Request, context: { params: { id: string } }
       });
     }
     
+    // For non-temporary blueprints, verify user has access if authenticated
+    if (!data.is_temporary && auth.isAuthenticated && auth.user && data.user_id && data.user_id !== auth.user.id) {
+      console.error(`User ${auth.user.id} does not have access to blueprint ${id} owned by ${data.user_id}`);
+      return new Response(null, { 
+        status: 403,
+        headers: {
+          'X-Error': 'Access denied',
+          'X-Debug-Info': `User does not have access to this blueprint`
+        }
+      });
+    }
+    
     // If the blueprint is temporary, log it
     if (data.is_temporary) {
       console.log(`Blueprint with ID ${id} exists and is temporary (HEAD request)`);
@@ -485,7 +571,8 @@ export async function HEAD(request: Request, context: { params: { id: string } }
       headers: {
         'X-Blueprint-Found': 'true',
         'X-Blueprint-Type': data.is_temporary ? 'temporary' : 'permanent',
-        'X-Blueprint-Created': data.created_at || 'unknown'
+        'X-Blueprint-Created': data.created_at || 'unknown',
+        'X-Blueprint-User': data.user_id || 'none'
       }
     });
   } catch (error) {

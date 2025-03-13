@@ -19,7 +19,7 @@ This document catalogs all SQL scripts that have been manually executed in the S
 | Blueprint Comments RLS Policies                  | blueprint_comments_rls             | RLS policies for blueprint comments                                 | TBD          |
 | Blueprint Subtasks RLS Policies                  | blueprint_subtasks_rls             | RLS policies for blueprint subtasks                                 | TBD          |
 | Blueprint Steps RLS Policies                     | blueprint_steps_rls                | RLS policies for blueprint steps                                    | TBD          |
-| Blueprints RLS Policies                          | blueprints_rls_main                | Main RLS policies for the blueprints table                          | TBD          |
+| Blueprints RLS Policies                          | blueprints_rls_main                | Main RLS policies for the blueprints table                          | 2025-03-13   |
 | Enable Row-Level Security for Tables             | enable_rls_all_tables              | Enable RLS on all blueprint-related tables                          | TBD          |
 | Blueprint Content Migration Function             | content_migration_function         | Function to migrate blueprint content from old to new schema        | TBD          |
 | Create reasoning_message table                   | reasoning_message_table_creation   | Create the table for storing reasoning messages                     | TBD          |
@@ -313,6 +313,11 @@ CREATE POLICY blueprint_steps_public_view ON public.blueprint_steps FOR SELECT
 
 ```sql
 -- Blueprints RLS Policies (without team reference)
+-- First drop existing policies to avoid conflicts
+DROP POLICY IF EXISTS blueprint_owner_all ON public.blueprints;
+DROP POLICY IF EXISTS blueprint_public_view ON public.blueprints;
+DROP POLICY IF EXISTS blueprint_temporary_view ON public.blueprints;
+
 -- Owner can do everything
 CREATE POLICY blueprint_owner_all ON public.blueprints
   USING (user_id = auth.uid())
@@ -321,6 +326,10 @@ CREATE POLICY blueprint_owner_all ON public.blueprints
 -- Anyone can view public blueprints
 CREATE POLICY blueprint_public_view ON public.blueprints FOR SELECT
   USING (visibility = 'public');
+
+-- Allow anyone to access temporary blueprints
+CREATE POLICY blueprint_temporary_view ON public.blueprints FOR SELECT
+  USING (is_temporary = true);
 
 -- Placeholder for team policy - commented out until team_members table exists
 -- CREATE POLICY blueprint_team_view ON public.blueprints FOR SELECT
@@ -677,3 +686,25 @@ GRANT EXECUTE ON FUNCTION public.execute_sql(text) TO service_role;
    - Use snake_case for suggested script names
    - Be descriptive but concise
    - Include the object type (table, policy, function, etc.) in the name
+
+## Debugging Tools
+
+### Blueprint Access Tester
+
+We've created a special debugging tool at `/debug/blueprint-tester` that helps identify and troubleshoot database access and RLS policy issues. This tool allows you to:
+
+1. **Test Standard API**: Test normal API endpoint access to blueprints.
+2. **Test Direct API**: Bypass normal auth to check if a blueprint exists at all.
+3. **Test Debug Info**: Get detailed diagnostics about permissions and database state.
+4. **Test DB Access**: Check database connectivity and table access permissions.
+5. **Test RLS Policies**: Analyze which Row Level Security policies are affecting access.
+
+This tool was crucial in identifying an issue where temporary blueprints were inaccessible due to missing RLS policies. It helped diagnose that while a blueprint existed in the database (visible via service role), it wasn't accessible to authenticated users due to RLS restrictions.
+
+#### Implementation Note
+
+The blueprint-tester provides valuable information that can help maintain proper RLS policies. When adding new tables or modifying access patterns, consider running tests to ensure permissions work as expected, especially for:
+
+- Temporary resources that should be accessible across users
+- Public vs. private visibility settings
+- Complex ownership chains (e.g., steps → blueprint → user)

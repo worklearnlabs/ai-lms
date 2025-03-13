@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createStandardServerClient } from '@/utils/supabase';
+import { withRouteAuth } from '@/utils/route-handlers';
 
 // Define schema for POST request
 const SaveResponsesSchema = z.object({
@@ -25,8 +26,14 @@ export async function GET(req: Request) {
       );
     }
     
-    // Initialize Supabase client
-    const supabase = createStandardServerClient();
+    // Initialize Supabase client with authentication
+    const auth = await withRouteAuth(req);
+    
+    // Use either the authenticated client or fallback to standard client
+    // This allows temporary blueprints to work without authentication
+    const supabase = auth.isAuthenticated && auth.supabase 
+      ? auth.supabase 
+      : createStandardServerClient();
     
     // Get the questions and responses
     const { data, error } = await supabase
@@ -98,8 +105,11 @@ export async function POST(req: Request) {
       );
     }
     
-    // Initialize Supabase client
-    const supabase = createStandardServerClient();
+    // Initialize Supabase client with authentication
+    const auth = await withRouteAuth(req);
+    const supabase = auth.isAuthenticated && auth.supabase 
+      ? auth.supabase 
+      : createStandardServerClient();
     
     // Check if the blueprint exists but don't treat it as a critical error if not found
     console.log(`Checking blueprint existence: ${blueprint_id}`);
@@ -114,122 +124,22 @@ export async function POST(req: Request) {
       console.warn('Error checking blueprint, but continuing:', blueprintError);
     }
     
-    if (!blueprintData) {
-      console.warn(`Blueprint with ID ${blueprint_id} not found during response saving, but continuing`);
-      
-      // Additional debug info - check recently created blueprints
-      try {
-        const { data: recentBlueprints, error: recentError } = await supabase
-          .from('blueprints')
-          .select('id, created_at, is_temporary, title')
-          .order('created_at', { ascending: false })
-          .limit(5);
-          
-        if (recentError) {
-          console.error('Error fetching recent blueprints:', recentError);
-        } else if (recentBlueprints && recentBlueprints.length > 0) {
-          console.log('Most recent blueprints:', recentBlueprints.map(bp => 
-            `${bp.id} (created: ${bp.created_at}, temp: ${bp.is_temporary ? 'yes' : 'no'}, title: ${bp.title?.substring(0, 20) || 'untitled'})`
-          ).join(', '));
-        } else {
-          console.log('No recent blueprints found in database');
-        }
-      } catch (debugError) {
-        console.error(`Error in recent blueprints query:`, debugError);
-      }
-      
-      // Check if there's a search_query in the request headers - if so, we can recreate the blueprint
-      const searchQuery = req.headers.get('X-Blueprint-Search-Query');
-      const autoRecreate = req.headers.get('X-Auto-Recreate-Blueprint') === 'true';
-      
-      if (autoRecreate && searchQuery) {
-        console.log(`Attempting to recreate missing temporary blueprint with search query: ${searchQuery.substring(0, 50)}...`);
-        
-        try {
-          // Create a new temporary blueprint with the provided search query
-          const { data: newBlueprint, error: createError } = await supabase
-            .from('blueprints')
-            .insert({
-              title: `Recreated Blueprint (${new Date().toLocaleString()})`,
-              search_query: searchQuery,
-              visibility: 'private',
-              is_temporary: true,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            })
-            .select()
-            .single();
-            
-          if (createError) {
-            console.error('Failed to recreate blueprint:', createError);
-          } else if (newBlueprint) {
-            console.log(`Successfully recreated blueprint with ID: ${newBlueprint.id}`);
-            
-            // Now use this new blueprint ID for the response
-            return NextResponse.json(
-              { 
-                success: true,
-                message: 'Blueprint recreated and responses saved',
-                warning: 'Original blueprint not found, created a new one',
-                blueprint_id: newBlueprint.id,
-                original_blueprint_id: blueprint_id,
-                recreated: true
-              }
-            );
-          }
-        } catch (recreateError) {
-          console.error('Error during blueprint recreation:', recreateError);
-        }
-      }
-    }
-    
-    // Determine if this is a temporary blueprint
+    // Check for temporary blueprint status
     const isTemporaryBlueprint = blueprintData?.is_temporary === true;
-    if (blueprintData) {
-      console.log(`Blueprint ${blueprint_id} is${isTemporaryBlueprint ? '' : ' not'} temporary, created at ${blueprintData.created_at || 'unknown'}`);
+    
+    // If this is NOT a temporary blueprint, we require authentication
+    if (!isTemporaryBlueprint && !auth.isAuthenticated) {
+      console.error('Authentication required for non-temporary blueprint');
+      return auth.unauthorized();
     }
     
-    let user = null;
-    
-    // Only perform authentication checks for non-temporary blueprints
-    if (!isTemporaryBlueprint) {
-      const { data: authData, error: authError } = await supabase.auth.getUser();
-      
-      if (authError) {
-        console.error('Authentication error:', authError.message);
-        return NextResponse.json(
-          { error: 'Authentication error', details: authError.message },
-          { status: 401 }
-        );
-      }
-      
-      user = authData.user;
-      
-      if (!user) {
-        console.error('User not authenticated for non-temporary blueprint');
-        return NextResponse.json(
-          { error: 'Authentication required for non-temporary blueprints' },
-          { status: 401 }
-        );
-      }
-      
-      // For non-temporary blueprints with data, verify the user has access
-      if (blueprintData && blueprintData.user_id !== user.id) {
-        console.error(`User ${user.id} does not have access to blueprint ${blueprint_id}`);
-        return NextResponse.json(
-          { error: 'Access denied to this blueprint' },
-          { status: 403 }
-        );
-      }
-    } else {
-      console.log('Skipping strict authentication for temporary blueprint');
-      // For temporary blueprints, we still try to get the user, but don't require it
-      try {
-        const { data: authData } = await supabase.auth.getUser();
-        user = authData.user;
-      } catch {
-        console.log('Could not get user, but continuing for temporary blueprint');
-      }
+    // For non-temporary blueprints with data, verify the user has access
+    if (!isTemporaryBlueprint && blueprintData && auth.user && blueprintData.user_id !== auth.user.id) {
+      console.error(`User ${auth.user.id} does not have access to blueprint ${blueprint_id}`);
+      return NextResponse.json(
+        { error: 'Access denied to this blueprint' },
+        { status: 403 }
+      );
     }
     
     // Now handle the actual storage operation
@@ -288,9 +198,8 @@ export async function POST(req: Request) {
           questions: [], // Empty questions array initially
           responses: responses, // Save the current responses
           created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          // Add user_id if available
-          ...(user ? { user_id: user.id } : {})
+          updated_at: new Date().toISOString()
+          // Remove user_id field as it doesn't exist in the blueprint_questions table
         })
         .select()
         .single();

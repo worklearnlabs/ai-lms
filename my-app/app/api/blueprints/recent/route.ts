@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createStandardServerClient } from '@/utils/supabase';
+import { withRouteAuth } from '@/utils/route-handlers';
 
 /**
  * GET /api/blueprints/recent
@@ -15,14 +15,23 @@ export async function GET(req: Request) {
     // Validate limit is a reasonable number
     const validLimit = Math.min(Math.max(1, limit), 50); // Between 1 and 50
     
-    // Initialize Supabase client
-    const supabase = createStandardServerClient();
+    // Use the withRouteAuth utility to get authentication status and Supabase client
+    const { isAuthenticated, user, supabase } = await withRouteAuth(req);
     
-    // Get the current authenticated user
-    const { data: { user } } = await supabase.auth.getUser();
+    // If supabase client is not available, return an error
+    if (!supabase) {
+      console.error('Failed to initialize Supabase client');
+      return NextResponse.json(
+        { error: 'Database connection error' },
+        { status: 500 }
+      );
+    }
     
     // If user is not authenticated, return limited recent public blueprints only
-    if (!user) {
+    if (!isAuthenticated || !user) {
+      console.log('User not authenticated, returning public blueprints only');
+      
+      // We still use the supabase client from withRouteAuth
       const { data, error } = await supabase
         .from('blueprints')
         .select('id, title, prompt, is_temporary, created_at')

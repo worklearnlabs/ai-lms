@@ -4,6 +4,9 @@ import { generateText } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { extractSupabaseTokenFromCookies, getUserIdFromToken } from '@/utils/supabase-auth';
 import { ensureUserInDatabase } from '@/utils/user-sync';
+import { createServiceRoleClient } from "@/utils/supabase-admin";
+import { createStandardServerClient } from '@/utils/supabase';
+import { OpenAI } from 'openai';
 
 // Allow longer timeout for the AI to generate questions
 export const maxDuration = 30;
@@ -34,579 +37,272 @@ export type Question = {
   content: string;
 }
 
+const openaiSDK = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+/**
+ * GET /api/blueprints/questions?blueprint_id={id}
+ * Retrieves the questions for a specific blueprint
+ */
+export async function GET(req: Request) {
+  try {
+    // Get blueprint_id from query string
+    const url = new URL(req.url);
+    const blueprint_id = url.searchParams.get('blueprint_id');
+    
+    if (!blueprint_id) {
+      return NextResponse.json(
+        { error: 'Missing blueprint_id parameter' },
+        { status: 400 }
+      );
+    }
+    
+    // Initialize Supabase client
+    const supabase = createStandardServerClient();
+    
+    // Get the questions for the specified blueprint
+    const { data, error } = await supabase
+      .from('blueprint_questions')
+      .select('*')
+      .eq('blueprint_id', blueprint_id)
+      .single();
+    
+    if (error) {
+      if (error.code === 'PGRST116') { // Not found
+        return NextResponse.json({ error: 'No questions found for this blueprint' }, { status: 404 });
+      }
+      
+      return NextResponse.json(
+        { error: 'Failed to fetch questions', details: error.message },
+        { status: 500 }
+      );
+    }
+    
+    return NextResponse.json(data);
+  } catch (error) {
+    console.error('Error in GET questions:', error);
+    return NextResponse.json(
+      { error: 'Failed to process request' },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * POST /api/blueprints/questions
+ * Generates questions for a blueprint based on the provided prompt
+ */
 export async function POST(req: Request) {
   try {
-    // Parse request body
+    // Verify the request schema
     const json = await req.json();
     console.log('Received request:', json);
     
-    // Validate input using Zod schema
     const validationResult = QuestionsRequestSchema.safeParse(json);
     if (!validationResult.success) {
-      console.error('Invalid input:', validationResult.error.format());
       return NextResponse.json(
-        { 
-          error: 'Invalid input', 
-          details: validationResult.error.format() 
-        },
+        { error: 'Invalid input', details: validationResult.error.format() },
         { status: 400 }
       );
     }
     
     const { prompt, skill_level, learning_objective, blueprint_id } = validationResult.data;
+    
+    // Process the prompt and generate questions
     console.log('Processing prompt:', prompt);
+    console.log('Processing questions for blueprint ID:', blueprint_id);
     
-    // No blueprint verification - we assume it exists or will exist soon
-    // This resolves race conditions between blueprint creation and usage
-    if (blueprint_id) {
-      console.log(`Processing questions for blueprint ID: ${blueprint_id}`);
-    } else {
-      console.log('No blueprint ID provided, generating standalone questions');
-    }
-    
-    // Generate questions using AI
+    // Generate questions using OpenAI
     try {
-      // Create system prompt for the AI
-      const systemPrompt = `
-You are an AI educator and consultant assistant.
-Based on the user's request for: "${prompt}"
+      console.log('Calling Vercel AI SDK with gpt-4-turbo and JSON response format...');
+      
+      const response = await openaiSDK.chat.completions.create({
+        model: 'gpt-4-turbo',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a helpful assistant that generates questions to help users refine their blueprint plans. You will be given a blueprint prompt, and your task is to generate meaningful questions to help the user clarify their requirements.'
+          },
+          {
+            role: 'user',
+            content: `Generate 4-5 focused questions to help refine this blueprint: "${prompt}". The questions should help clarify the user's needs and expectations. Include a descriptive title for the blueprint and a short paragraph description that captures the essence of what they're building.
 
-First, suggest a clear, descriptive title for the AI blueprint focusing on what the AI will do.
-
-Next, provide a brief description (1-2 sentences) that explains what this AI tool would do, its purpose, and key benefits.
-
-Then, generate up to 4 clarifying questions that would help you understand the user's requirements better.
-${skill_level ? `- Consider the user's skill level: ${skill_level}` : ''}
-${learning_objective ? `- Consider the user's learning objective: ${learning_objective}` : ''}
-
-Be thoughtful and specific. Each question should help clarify an important aspect of the project that would be necessary for implementation.
-Avoid generic questions. Make each question targeted to the specific AI project being requested.
-
-Example good blueprint titles:
-- "Daily LinkedIn Posts Summarizer" (not "I want an AI that summarizes LinkedIn posts")
-- "Customer Support Email Classifier" (not "Email classifier for support")
-- "Meeting Transcription & Action Item Extractor" (not "Transcription system")
-
-You MUST respond in JSON format with a blueprint title, description, and an array of question objects. Your response MUST follow this format:
+Format your response as a JSON object with the following structure:
 {
-  "blueprint_title": "A clear, descriptive title for the AI system (30-60 chars)",
-  "blueprint_description": "A brief 1-2 sentence description of what this AI tool does and its key benefits",
+  "blueprint_title": "A concise and descriptive title for the blueprint",
+  "blueprint_description": "A paragraph summarizing what the blueprint aims to create",
   "questions": [
     {
       "id": 1,
-      "title": "Short title for the question",
-      "content": "Full text of the question"
+      "title": "Short question title",
+      "content": "The full question content"
     },
-    ...
+    // More questions...
   ]
-}
-`;
-
-      console.log('Calling Vercel AI SDK with gpt-4-turbo and JSON response format...');
-      
-      // Use the Vercel AI SDK to generate text with JSON formatting
-      const { text: responseText } = await generateText({
-        model: openai('gpt-4-turbo'),
-        prompt: systemPrompt,
-        temperature: 0.2,
-        maxTokens: 800,
-        providerOptions: {
-          openai: {
-            response_format: { type: 'json_object' }
+}`
           }
-        }
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.7,
       });
       
       console.log('AI SDK response received');
-      console.log('Raw response:', responseText);
+      const jsonResponse = response.choices[0].message.content;
+      console.log('Raw response:', jsonResponse);
       
+      if (!jsonResponse) {
+        throw new Error('No response content received from AI');
+      }
+      
+      const parsedResponse = JSON.parse(jsonResponse);
+      
+      // Extract the title, description, and questions
+      const title = parsedResponse.blueprint_title || 'Untitled Blueprint';
+      const description = parsedResponse.blueprint_description || '';
+      console.log('Extracted blueprint title:', title);
+      console.log('Extracted blueprint description:', description);
+      
+      // Update the blueprint with the title and description
+      const serviceClient = createServiceRoleClient();
+      
+      // Try to get auth token and user ID from cookies
       try {
-        // Remove markdown code blocks if present (like ```json ... ```)
-        let cleanedResponse = responseText;
-        if (responseText.includes('```')) {
-          console.log('Markdown code blocks detected, removing them');
-          cleanedResponse = responseText.replace(/```(?:json|javascript)?\n?([\s\S]*?)```/g, '$1');
-        }
+        const cookieHeader = req.headers.get('cookie') || '';
+        console.log('=== EXTRACTING TOKEN FROM COOKIES ===');
+        const token = extractSupabaseTokenFromCookies(cookieHeader);
+        console.log('=== GETTING USER ID FROM TOKEN ===');
+        const authUserId = token ? getUserIdFromToken(token) : null;
         
-        // Parse the questions JSON
-        const questionsData = JSON.parse(cleanedResponse);
-        
-        // Extract the blueprint title and description if available
-        let blueprintTitle = null;
-        let blueprintDescription = null;
-        
-        if (questionsData.blueprint_title) {
-          blueprintTitle = questionsData.blueprint_title;
-          console.log('Extracted blueprint title:', blueprintTitle);
-        }
-        
-        if (questionsData.blueprint_description) {
-          blueprintDescription = questionsData.blueprint_description;
-          console.log('Extracted blueprint description:', blueprintDescription);
-        }
-        
-        // If we have a blueprint_id, update the title and description
-        if (blueprint_id && (blueprintTitle || blueprintDescription)) {
-          try {
-            // Get user ID from auth token
-            const cookieHeader = req.headers.get('cookie') || '';
-            
-            // Get Supabase credentials for API access
-            const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-            const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-            
-            if (!supabaseUrl || !supabaseKey) {
-              throw new Error('Missing Supabase URL or service role key');
-            }
-            
-            if (cookieHeader) {
-              const token = extractSupabaseTokenFromCookies(cookieHeader);
-              if (token) {
-                // Get auth user ID from token
-                const authUserId = await getUserIdFromToken(token);
-                console.log('Auth user ID from token:', authUserId);
-                
-                if (authUserId) {
-                  // Map auth user ID to application user ID using ensureUserInDatabase
-                  const { success, userId: applicationUserId, error } = await ensureUserInDatabase(authUserId);
-                  
-                  if (!success || !applicationUserId) {
-                    console.error('Failed to ensure user exists in database:', error);
-                  } else {
-                    console.log('Application user ID from database:', applicationUserId, '(this is the ID that should match the users table)');
-                    
-                    // Now use the correct application user ID
-                    if (applicationUserId && blueprint_id) {
-                      try {
-                        const blueprintUrl = `${supabaseUrl}/rest/v1/blueprints?id=eq.${blueprint_id}`;
-                        const headers = {
-                          'Content-Type': 'application/json',
-                          'apikey': supabaseKey,
-                          'Authorization': `Bearer ${supabaseKey}`,
-                          'Prefer': 'return=minimal'
-                        };
-                        
-                        // First, get the current blueprint data
-                        const getBlueprintResponse = await fetch(
-                          `${supabaseUrl}/rest/v1/blueprints?id=eq.${blueprint_id}&select=id,title,prompt,search_query,user_id`,
-                          {
-                            headers: {
-                              'Content-Type': 'application/json',
-                              'apikey': supabaseKey,
-                              'Authorization': `Bearer ${supabaseKey}`
-                            }
-                          }
-                        );
-                        
-                        if (!getBlueprintResponse.ok) {
-                          console.error('Error fetching blueprint data:', await getBlueprintResponse.text());
-                          throw new Error('Failed to fetch blueprint data');
-                        }
-                        
-                        const blueprintData = await getBlueprintResponse.json();
-                        console.log('Current blueprint data before update:', blueprintData);
-                        
-                        if (!blueprintData || blueprintData.length === 0) {
-                          throw new Error('Blueprint not found');
-                        }
-                        
-                        const currentBlueprint = blueprintData[0];
-                        
-                        // Check if the blueprint already has a user_id
-                        const needsUserUpdate = !currentBlueprint.user_id;
-                        
-                        // Use the current prompt from the request, or fall back to what's in the database
-                        const originalPrompt = prompt || currentBlueprint.prompt || currentBlueprint.search_query || '';
-                        
-                        console.log('Using prompt value for update:', originalPrompt);
-                        console.log('Need to update user_id?', needsUserUpdate);
-                        
-                        // Build update object
-                        const updateData: Record<string, unknown> = {
-                          title: blueprintTitle,
-                          prompt: originalPrompt
-                        };
-                        
-                        // Add description if available
-                        if (blueprintDescription) {
-                          updateData.details = blueprintDescription;
-                        }
-                        
-                        // Only set user_id if it's not already set
-                        if (needsUserUpdate) {
-                          updateData.user_id = applicationUserId;
-                        }
-                        
-                        // Update the blueprint with the title, prompt, and user_id
-                        const blueprintResponse = await fetch(
-                          blueprintUrl,
-                          {
-                            method: 'PATCH',
-                            headers,
-                            body: JSON.stringify(updateData)
-                          }
-                        );
-                        
-                        if (blueprintResponse.ok) {
-                          console.log(`Blueprint updated successfully (title, prompt${needsUserUpdate ? ', user_id' : ''})`);
-                          
-                          // Now fetch the blueprint to verify the update
-                          const verifyResponse = await fetch(
-                            `${supabaseUrl}/rest/v1/blueprints?id=eq.${blueprint_id}&select=id,title,prompt,search_query,user_id,details`,
-                            {
-                              headers: {
-                                'Content-Type': 'application/json',
-                                'apikey': supabaseKey,
-                                'Authorization': `Bearer ${supabaseKey}`
-                              }
-                            }
-                          );
-                          
-                          if (verifyResponse.ok) {
-                            const updatedBlueprintData = await verifyResponse.json();
-                            console.log('Blueprint after update:', updatedBlueprintData);
-                          }
-                        } else {
-                          const error = await blueprintResponse.text();
-                          console.error('Error updating blueprint:', error);
-                        }
-                      } catch (titleError) {
-                        console.error('Error updating blueprint:', titleError);
-                        // Continue despite error - we still want to return the questions
-                      }
-                    }
-                    
-                    console.log('Note: user_id will not be associated with blueprint_questions due to schema limitations');
-                  }
-                }
-              }
-            }
-          } catch (titleError) {
-            console.error('Error updating blueprint title:', titleError);
-            // Continue despite error - we still want to return the questions
-          }
-        }
-        
-        // If we have an array in a "questions" property, use that
-        const questionsArray = Array.isArray(questionsData) 
-          ? questionsData 
-          : (questionsData.questions && Array.isArray(questionsData.questions) 
-            ? questionsData.questions 
-            : []);
-        
-        console.log('Parsed questions array:', questionsArray);
-        
-        // Create a standardized questions array
-        const formattedQuestions = questionsArray.map((q: { id?: number; title?: string; content?: string; text?: string }, index: number) => ({
-          id: q.id || index + 1,
-          title: q.title || `Question ${index + 1}`,
-          content: q.content || q.text || "No content provided"
-        }));
-        
-        // Ensure we have exactly 4 questions
-        const finalQuestions = formattedQuestions.slice(0, 4);
-        
-        // If we have a blueprint_id, store the questions
-        if (blueprint_id) {
-          console.log(`Storing questions for blueprint ${blueprint_id}`);
+        if (authUserId) {
+          // Map auth user ID to application user ID using ensureUserInDatabase
+          const { success, userId: applicationUserId, error } = await ensureUserInDatabase(authUserId);
           
-          try {
-            // Get user ID from auth token
-            const cookieHeader = req.headers.get('cookie') || '';
+          if (!success || !applicationUserId) {
+            console.error('Failed to ensure user exists in database:', error);
+          } else {
+            console.log('Application user ID from database:', applicationUserId, '(this is the ID that should match the users table)');
             
-            // Get Supabase credentials for API access
-            const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-            const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-            
-            if (!supabaseUrl || !supabaseKey) {
-              throw new Error('Missing Supabase URL or service role key');
-            }
-            
-            if (cookieHeader) {
-              const token = extractSupabaseTokenFromCookies(cookieHeader);
-              if (token) {
-                // Get auth user ID from token
-                const authUserId = await getUserIdFromToken(token);
-                console.log('Auth user ID from token:', authUserId);
+            // Now use the correct application user ID
+            if (applicationUserId && blueprint_id) {
+              try {
+                const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+                const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
                 
-                if (authUserId) {
-                  // Map auth user ID to application user ID using ensureUserInDatabase
-                  const { success, userId: applicationUserId, error } = await ensureUserInDatabase(authUserId);
-                  
-                  if (!success || !applicationUserId) {
-                    console.error('Failed to ensure user exists in database:', error);
-                  } else {
-                    console.log('Application user ID from database:', applicationUserId, '(this is the ID that should match the users table)');
-                    
-                    // Now use the correct application user ID
-                    if (applicationUserId && blueprint_id) {
-                      try {
-                        const blueprintUrl = `${supabaseUrl}/rest/v1/blueprints?id=eq.${blueprint_id}`;
-                        const headers = {
-                          'Content-Type': 'application/json',
-                          'apikey': supabaseKey,
-                          'Authorization': `Bearer ${supabaseKey}`,
-                          'Prefer': 'return=minimal'
-                        };
-                        
-                        // First, get the current blueprint data
-                        const getBlueprintResponse = await fetch(
-                          `${supabaseUrl}/rest/v1/blueprints?id=eq.${blueprint_id}&select=id,title,prompt,search_query,user_id`,
-                          {
-                            headers: {
-                              'Content-Type': 'application/json',
-                              'apikey': supabaseKey,
-                              'Authorization': `Bearer ${supabaseKey}`
-                            }
-                          }
-                        );
-                        
-                        if (!getBlueprintResponse.ok) {
-                          console.error('Error fetching blueprint data:', await getBlueprintResponse.text());
-                          throw new Error('Failed to fetch blueprint data');
-                        }
-                        
-                        const blueprintData = await getBlueprintResponse.json();
-                        console.log('Current blueprint data before update:', blueprintData);
-                        
-                        if (!blueprintData || blueprintData.length === 0) {
-                          throw new Error('Blueprint not found');
-                        }
-                        
-                        const currentBlueprint = blueprintData[0];
-                        
-                        // Check if the blueprint already has a user_id
-                        const needsUserUpdate = !currentBlueprint.user_id;
-                        
-                        // Use the current prompt from the request, or fall back to what's in the database
-                        const originalPrompt = prompt || currentBlueprint.prompt || currentBlueprint.search_query || '';
-                        
-                        console.log('Using prompt value for update:', originalPrompt);
-                        console.log('Need to update user_id?', needsUserUpdate);
-                        
-                        // Build update object
-                        const updateData: Record<string, unknown> = {
-                          title: blueprintTitle,
-                          prompt: originalPrompt
-                        };
-                        
-                        // Add description if available
-                        if (blueprintDescription) {
-                          updateData.details = blueprintDescription;
-                        }
-                        
-                        // Only set user_id if it's not already set
-                        if (needsUserUpdate) {
-                          updateData.user_id = applicationUserId;
-                        }
-                        
-                        // Update the blueprint with the title, prompt, and user_id
-                        const blueprintResponse = await fetch(
-                          blueprintUrl,
-                          {
-                            method: 'PATCH',
-                            headers,
-                            body: JSON.stringify(updateData)
-                          }
-                        );
-                        
-                        if (blueprintResponse.ok) {
-                          console.log(`Blueprint updated successfully (title, prompt${needsUserUpdate ? ', user_id' : ''})`);
-                          
-                          // Now fetch the blueprint to verify the update
-                          const verifyResponse = await fetch(
-                            `${supabaseUrl}/rest/v1/blueprints?id=eq.${blueprint_id}&select=id,title,prompt,search_query,user_id,details`,
-                            {
-                              headers: {
-                                'Content-Type': 'application/json',
-                                'apikey': supabaseKey,
-                                'Authorization': `Bearer ${supabaseKey}`
-                              }
-                            }
-                          );
-                          
-                          if (verifyResponse.ok) {
-                            const updatedBlueprintData = await verifyResponse.json();
-                            console.log('Blueprint after update:', updatedBlueprintData);
-                          }
-                        } else {
-                          const error = await blueprintResponse.text();
-                          console.error('Error updating blueprint:', error);
-                        }
-                      } catch (titleError) {
-                        console.error('Error updating blueprint:', titleError);
-                        // Continue despite error - we still want to return the questions
-                      }
-                    }
-                    
-                    console.log('Note: user_id will not be associated with blueprint_questions due to schema limitations');
-                  }
+                if (!supabaseUrl || !supabaseKey) {
+                  throw new Error('Missing Supabase configuration');
                 }
-              }
-            }
-            
-            // Now store the questions
-            // Create the request URL and headers for questions
-            const questionsUrl = `${supabaseUrl}/rest/v1/blueprint_questions`;
-            const headers = {
-              'Content-Type': 'application/json',
-              'apikey': supabaseKey,
-              'Authorization': `Bearer ${supabaseKey}`,
-              'Prefer': 'resolution=merge-duplicates'
-            };
-            
-            // First try to find if a record exists
-            const checkResponse = await fetch(
-              `${questionsUrl}?blueprint_id=eq.${blueprint_id}&select=id`, 
-              { headers }
-            );
-            
-            let existingId = null;
-            if (checkResponse.ok) {
-              const records = await checkResponse.json();
-              if (records.length > 0) {
-                existingId = records[0].id;
-                console.log('Found existing record with ID:', existingId);
-              }
-            }
-            
-            // Initialize empty responses for each question
-            const initialResponses: Record<number, string> = {};
-            finalQuestions.forEach((q: { id: number; title: string; content: string }) => {
-              initialResponses[q.id] = ''; // Empty string for each question
-            });
-            
-            let response;
-            
-            if (existingId) {
-              // Update an existing record
-              console.log('Updating existing record');
-              response = await fetch(
-                `${questionsUrl}?id=eq.${existingId}`,
-                {
-                  method: 'PATCH',
-                  headers,
-                  body: JSON.stringify({
-                    questions: finalQuestions,
-                    responses: initialResponses, // Save empty responses
-                    updated_at: new Date().toISOString()
+                
+                // First, get the current blueprint data
+                const { data: currentBlueprintData, error: getBlueprintError } = await serviceClient
+                  .from('blueprints')
+                  .select('id, title, prompt, search_query, user_id')
+                  .eq('id', blueprint_id)
+                  .limit(1);
+                
+                if (getBlueprintError) {
+                  console.error('Error fetching current blueprint data:', getBlueprintError);
+                  throw getBlueprintError;
+                }
+                
+                console.log('Current blueprint data before update:', currentBlueprintData);
+                
+                // Determine what fields to update
+                const promptToUse = currentBlueprintData?.[0]?.prompt || prompt;
+                console.log('Using prompt value for update:', promptToUse);
+                
+                // Check if we need to update the user_id
+                const shouldUpdateUserId = !currentBlueprintData?.[0]?.user_id;
+                console.log('Need to update user_id?', shouldUpdateUserId);
+                
+                // Update the blueprint with new title and description
+                const { data: updatedBlueprint, error: updateError } = await serviceClient
+                  .from('blueprints')
+                  .update({
+                    title: title,
+                    prompt: promptToUse,
+                    details: description,
+                    ...(shouldUpdateUserId ? { user_id: applicationUserId } : {})
                   })
+                  .eq('id', blueprint_id)
+                  .select();
+                
+                if (updateError) {
+                  console.error('Error updating blueprint:', updateError);
+                  throw updateError;
                 }
-              );
-            } else {
-              // Insert a new record
-              console.log('Creating new record');
-              const body: Record<string, unknown> = {
-                blueprint_id,
-                questions: finalQuestions,
-                responses: initialResponses, // Initialize with empty responses
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString()
-              };
-              
-              response = await fetch(
-                questionsUrl,
-                {
-                  method: 'POST',
-                  headers,
-                  body: JSON.stringify(body)
-                }
-              );
-            }
-            
-            if (response.ok) {
-              console.log('Questions stored successfully');
-              
-              // Verify the record was created properly
-              const verifyResponse = await fetch(
-                `${questionsUrl}?blueprint_id=eq.${blueprint_id}&select=*`,
-                { headers }
-              );
-              
-              if (verifyResponse.ok) {
-                const records = await verifyResponse.json();
-                if (records.length > 0) {
-                  console.log('Verified questions record:', records[0].id);
-                  console.log('Questions count:', records[0].questions?.length || 0);
-                } else {
-                  console.error('Questions record verification failed: Record not found after creation');
-                }
-              } else {
-                console.error('Questions record verification failed:', await verifyResponse.text());
+                
+                console.log('Blueprint updated successfully (title, prompt' + (shouldUpdateUserId ? ', user_id' : '') + ')');
+                console.log('Blueprint after update:', updatedBlueprint);
+                
+                // Note for clarity
+                console.log('Note: user_id will not be associated with blueprint_questions due to schema limitations');
+              } catch (updateError) {
+                console.error('Error updating blueprint details:', updateError);
               }
-            } else {
-              const error = await response.text();
-              console.error('Error storing questions:', error);
             }
-          } catch (dbError) {
-            console.error('Error in question storage flow:', dbError);
-            console.log('Bypassing database storage due to error');
-            // Continue despite error - we can still return the questions to the client
           }
         }
-
-        // Return the questions
-        const response = NextResponse.json({
-          questions: finalQuestions,
-          blueprint_title: blueprintTitle,
-          blueprint_description: blueprintDescription,
-          blueprint_id
+      } catch (userIdError) {
+        console.error('Error processing user ID:', userIdError);
+      }
+      
+      // Store the questions in the database
+      try {
+        // Parse the questions array
+        const questions = parsedResponse.questions || [];
+        console.log('Parsed questions array:', questions);
+        
+        console.log('Storing questions for blueprint', blueprint_id);
+        
+        // Create or update the questions in the database
+        const { data: questionRecord, error: questionsError } = await serviceClient
+          .from('blueprint_questions')
+          .upsert({
+            blueprint_id,
+            questions,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            // Note: Do not include user_id as it doesn't exist in the blueprint_questions table
+          })
+          .select()
+          .single();
+          
+        if (questionsError) {
+          console.error('Error storing questions:', questionsError);
+          throw questionsError;
+        }
+        
+        console.log('Questions stored successfully');
+        console.log('Verified questions record:', questionRecord.id);
+        console.log('Questions count:', questions.length);
+        
+        return NextResponse.json({
+          blueprint_id,
+          title,
+          description,
+          questions,
+          stored: true,
+          record_id: questionRecord.id
         });
-        
-        // Add cache prevention headers to help with database sync issues
-        response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-        response.headers.set('Pragma', 'no-cache');
-        response.headers.set('Expires', '0');
-        
-        return response;
-      } catch (parseError) {
-        console.error('Error parsing AI response:', parseError);
-        
-        // Fallback to generic questions as a last resort
-        const fallbackQuestions = [
-          {
-            id: 1,
-            title: "Implementation Goals",
-            content: "What are the primary objectives or outcomes you want to achieve with this AI tool?"
-          },
-          {
-            id: 2,
-            title: "Data collection frequency",
-            content: "How frequently would you like to collect data? Daily, weekly, or on-demand?"
-          },
-          {
-            id: 3,
-            title: "Analysis focus",
-            content: "What specific metrics and insights would be most valuable to you?"
-          },
-          {
-            id: 4,
-            title: "Output format",
-            content: "How would you like the results presented? As a dashboard, PDF report, email summary, or in another format?"
-          }
-        ];
-        
-        // Return the fallback questions
-        const fallbackResponse = NextResponse.json({ questions: fallbackQuestions });
-        
-        // Add cache prevention headers to help with database sync issues
-        fallbackResponse.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-        fallbackResponse.headers.set('Pragma', 'no-cache');
-        fallbackResponse.headers.set('Expires', '0');
-        
-        return fallbackResponse;
+      } catch (questionsError) {
+        console.error('Error processing questions:', questionsError);
+        throw questionsError;
       }
     } catch (aiError) {
-      console.error('Error generating questions with AI:', aiError);
+      console.error('Error calling AI service:', aiError);
       return NextResponse.json(
-        { error: 'Failed to generate questions' },
+        { error: 'Failed to generate questions', details: aiError.message },
         { status: 500 }
       );
     }
   } catch (error) {
-    console.error('Unexpected error in questions endpoint:', error);
+    console.error('Unhandled error in questions API:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { 
+        error: 'Server error', 
+        details: error instanceof Error ? error.message : 'Unknown error' 
+      },
       { status: 500 }
     );
   }

@@ -15,14 +15,11 @@ import { BlueprintModalProvider } from "@/app/blueprints/components/blueprint-mo
 import { getDashboardData, DashboardData } from "@/utils/dashboard/dashboard-service"
 import { Skeleton } from "@/components/ui/skeleton"
 import { createClientSupabase } from '@/utils/supabase'
-import { useAuth } from "@/utils/auth"
-import { Button } from "@/components/ui/button"
 
 export default function Page() {
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const { signOut } = useAuth()
 
   useEffect(() => {
     // Debug authentication status
@@ -62,16 +59,6 @@ export default function Page() {
 
     fetchDashboardData()
   }, [])
-
-  const handleLogout = async () => {
-    console.log("Logout button clicked")
-    try {
-      await signOut()
-      console.log("Logout successful")
-    } catch (error) {
-      console.error("Error during logout:", error)
-    }
-  }
 
   return (
     <BlueprintModalProvider>
@@ -116,16 +103,6 @@ export default function Page() {
           ) : dashboardData && (
             <DashboardContent data={dashboardData} />
           )}
-          
-          <div className="mt-8">
-            <Button 
-              variant="destructive" 
-              onClick={handleLogout}
-              className="absolute bottom-4 right-4"
-            >
-              Log Out (Test)
-            </Button>
-          </div>
         </SidebarInset>
       </SidebarProvider>
     </BlueprintModalProvider>
