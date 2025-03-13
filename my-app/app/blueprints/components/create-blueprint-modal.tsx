@@ -66,6 +66,7 @@ export function CreateBlueprintModal({
   const [internalIsOpen, setInternalIsOpen] = useState(false)
   const [title, setTitle] = useState("")
   const [prompt, setPrompt] = useState("")
+  const [description, setDescription] = useState("")
   const [currentStep, setCurrentStep] = useState<'prompt' | 'conversation' | 'review'>('prompt')
   const [currentResponse, setCurrentResponse] = useState("")
   
@@ -103,6 +104,7 @@ export function CreateBlueprintModal({
   const [finalData, setFinalData] = useState<{
     title: string;
     search_query: string;
+    description?: string;
     complexity?: 'beginner' | 'intermediate' | 'advanced';
     estimated_time?: string;
     prerequisites?: string[];
@@ -198,6 +200,7 @@ export function CreateBlueprintModal({
       
       setPrompt("");
       setTitle("");
+      setDescription("");
       setCurrentStep('prompt');
       setCurrentResponse("");
       setCreatedBlueprintId(undefined);
@@ -226,6 +229,7 @@ export function CreateBlueprintModal({
       // Reset states
       setTitle("");
       setPrompt("");
+      setDescription("");
       setCurrentStep('prompt');
       setCurrentResponse("");
       setActiveQuestionIndex(0);
@@ -247,6 +251,7 @@ export function CreateBlueprintModal({
           const startFreshBlueprint = (title: string, description: string) => {
             setTitle("");
             setPrompt("");
+            setDescription("");
             setCurrentStep('prompt');
             setQuestions([]);
             setResponses({});
@@ -276,6 +281,8 @@ export function CreateBlueprintModal({
             title?: string;
             prompt?: string;
             search_query?: string;
+            description?: string;
+            details?: string;
             content?: {
               questions?: Array<{
                 id: number;
@@ -294,10 +301,14 @@ export function CreateBlueprintModal({
             setTitle(data.title || "");
             setPrompt(data.prompt || "");
             
+            // Set description from either field, prioritizing 'description' if available
+            setDescription(data.description || data.details || "");
+            
             // Log the origin information to help with debugging
             console.log("Loaded blueprint details:", {
               title: data.title,
               prompt: data.prompt,
+              description: data.description || data.details,
               hasSearchQuery: !!data.search_query,
               hasQuestions: !!(data.content && data.content.questions),
               hasResponses: !!(data.content && data.content.responses),
@@ -314,6 +325,7 @@ export function CreateBlueprintModal({
               setFinalData({
                 title: data.title || "",
                 search_query: data.search_query,
+                description: data.description || data.details || "",
                 complexity: data.complexity,
                 estimated_time: data.estimated_time,
                 prerequisites: data.prerequisites
@@ -473,6 +485,18 @@ export function CreateBlueprintModal({
         });
       }
       
+      // Check if we received a blueprint title or description and update the state
+      if (data.blueprint_title) {
+        setTitle(data.blueprint_title);
+      }
+      
+      if (data.blueprint_description) {
+        // If we have a description state, update it
+        if (typeof setDescription === 'function') {
+          setDescription(data.blueprint_description);
+        }
+      }
+      
       if (data.questions && Array.isArray(data.questions)) {
         console.log('Received questions array:', data.questions);
         
@@ -567,7 +591,6 @@ export function CreateBlueprintModal({
           },
           body: JSON.stringify({
             title: prompt.split('\n')[0].slice(0, 50) || 'Draft Blueprint',
-            search_query: prompt,
             visibility: 'private',
             is_temporary: true // Flag this as a temporary blueprint
           }),
@@ -756,7 +779,6 @@ export function CreateBlueprintModal({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             title: prompt.split('\n')[0].slice(0, 50) || 'Draft Blueprint',
-            search_query: prompt,
             visibility: 'private',
             is_temporary: true // Flag this as a temporary blueprint
           })
@@ -853,7 +875,6 @@ export function CreateBlueprintModal({
                 },
                 body: JSON.stringify({
                   title: prompt.split('\n')[0].slice(0, 50) || 'Draft Blueprint',
-                  search_query: prompt,
                   visibility: 'private',
                   is_temporary: true
                 }),
@@ -953,6 +974,7 @@ export function CreateBlueprintModal({
       const blueprintData = {
         title: finalData.title,
         search_query: finalData.search_query,
+        details: finalData.description, // Save description to the details field
         prompt,
         content,
         complexity: finalData.complexity,
@@ -1041,14 +1063,22 @@ export function CreateBlueprintModal({
       // Update the final data state
       setFinalData({
         title: data.title || title,
-        search_query: data.search_query || prompt,
+        search_query: prompt, // Always use the prompt directly, not data.search_query
+        description: data.description || description,
         complexity: data.skill_level || 'beginner',
         estimated_time: data.estimated_time || '1-2 hours',
         prerequisites: data.prerequisites || []
       });
       
       console.log("Final blueprint data generated:", data);
-      return data;
+      
+      // Combine question responses into content object
+      const content = {
+        questions,
+        responses
+      };
+      
+      return { prompt, content };
     } catch (error) {
       console.error("Error generating final blueprint:", error);
       toast.error("Failed to generate final blueprint", {
@@ -1230,7 +1260,6 @@ export function CreateBlueprintModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: prompt.split('\n')[0].slice(0, 50) || 'Draft Blueprint',
-          search_query: prompt,
           visibility: 'private',
           is_temporary: true
         })
@@ -1500,6 +1529,18 @@ export function CreateBlueprintModal({
                         onChange={(e) => setFinalData({...finalData, search_query: e.target.value})}
                         className="mt-1"
                         rows={4}
+                      />
+                    </div>
+                    
+                    <div>
+                      <Label htmlFor="description" className="text-base">Description</Label>
+                      <Textarea 
+                        id="description"
+                        value={finalData.description || ""}
+                        onChange={(e) => setFinalData({...finalData, description: e.target.value})}
+                        className="mt-1"
+                        rows={2}
+                        placeholder="Brief description of what this AI tool does"
                       />
                     </div>
                     

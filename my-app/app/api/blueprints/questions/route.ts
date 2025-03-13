@@ -108,6 +108,8 @@ Based on the user's request for: "${prompt}"
 
 First, suggest a clear, descriptive title for the AI blueprint focusing on what the AI will do.
 
+Next, provide a brief description (1-2 sentences) that explains what this AI tool would do, its purpose, and key benefits.
+
 Then, generate up to 4 clarifying questions that would help you understand the user's requirements better.
 ${skill_level ? `- Consider the user's skill level: ${skill_level}` : ''}
 ${learning_objective ? `- Consider the user's learning objective: ${learning_objective}` : ''}
@@ -120,9 +122,10 @@ Example good blueprint titles:
 - "Customer Support Email Classifier" (not "Email classifier for support")
 - "Meeting Transcription & Action Item Extractor" (not "Transcription system")
 
-You MUST respond in JSON format with a blueprint title and an array of question objects. Your response MUST follow this format:
+You MUST respond in JSON format with a blueprint title, description, and an array of question objects. Your response MUST follow this format:
 {
   "blueprint_title": "A clear, descriptive title for the AI system (30-60 chars)",
+  "blueprint_description": "A brief 1-2 sentence description of what this AI tool does and its key benefits",
   "questions": [
     {
       "id": 1,
@@ -164,56 +167,129 @@ You MUST respond in JSON format with a blueprint title and an array of question 
         // Parse the questions JSON
         const questionsData = JSON.parse(cleanedResponse);
         
-        // Extract the blueprint title if available
+        // Extract the blueprint title and description if available
         let blueprintTitle = null;
+        let blueprintDescription = null;
+        
         if (questionsData.blueprint_title) {
           blueprintTitle = questionsData.blueprint_title;
           console.log('Extracted blueprint title:', blueprintTitle);
-          
-          // If we have a blueprint_id, update the title
-          if (blueprint_id && blueprintTitle) {
-            try {
-              // Get user ID from auth token
-              const cookieHeader = req.headers.get('cookie') || '';
-              
-              // Get Supabase credentials for API access
-              const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-              const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-              
-              if (!supabaseUrl || !supabaseKey) {
-                throw new Error('Missing Supabase URL or service role key');
-              }
-              
-              if (cookieHeader) {
-                const token = extractSupabaseTokenFromCookies(cookieHeader);
-                if (token) {
-                  // Get auth user ID from token
-                  const authUserId = await getUserIdFromToken(token);
-                  console.log('Auth user ID from token:', authUserId);
+        }
+        
+        if (questionsData.blueprint_description) {
+          blueprintDescription = questionsData.blueprint_description;
+          console.log('Extracted blueprint description:', blueprintDescription);
+        }
+        
+        // If we have a blueprint_id, update the title and description
+        if (blueprint_id && (blueprintTitle || blueprintDescription)) {
+          try {
+            // Get user ID from auth token
+            const cookieHeader = req.headers.get('cookie') || '';
+            
+            // Get Supabase credentials for API access
+            const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+            const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+            
+            if (!supabaseUrl || !supabaseKey) {
+              throw new Error('Missing Supabase URL or service role key');
+            }
+            
+            if (cookieHeader) {
+              const token = extractSupabaseTokenFromCookies(cookieHeader);
+              if (token) {
+                // Get auth user ID from token
+                const authUserId = await getUserIdFromToken(token);
+                console.log('Auth user ID from token:', authUserId);
+                
+                if (authUserId) {
+                  // Map auth user ID to application user ID using ensureUserInDatabase
+                  const { success, userId: applicationUserId, error } = await ensureUserInDatabase(authUserId);
                   
-                  if (authUserId) {
-                    // Map auth user ID to application user ID using ensureUserInDatabase
-                    const { success, userId: applicationUserId, error } = await ensureUserInDatabase(authUserId);
+                  if (!success || !applicationUserId) {
+                    console.error('Failed to ensure user exists in database:', error);
+                  } else {
+                    console.log('Application user ID from database:', applicationUserId, '(this is the ID that should match the users table)');
                     
-                    if (!success || !applicationUserId) {
-                      console.error('Failed to ensure user exists in database:', error);
-                    } else {
-                      console.log('Application user ID from database:', applicationUserId, '(this is the ID that should match the users table)');
-                      
-                      // Now use the correct application user ID
-                      if (applicationUserId && blueprint_id) {
-                        try {
-                          const blueprintUrl = `${supabaseUrl}/rest/v1/blueprints?id=eq.${blueprint_id}`;
-                          const headers = {
-                            'Content-Type': 'application/json',
-                            'apikey': supabaseKey,
-                            'Authorization': `Bearer ${supabaseKey}`,
-                            'Prefer': 'return=minimal'
-                          };
+                    // Now use the correct application user ID
+                    if (applicationUserId && blueprint_id) {
+                      try {
+                        const blueprintUrl = `${supabaseUrl}/rest/v1/blueprints?id=eq.${blueprint_id}`;
+                        const headers = {
+                          'Content-Type': 'application/json',
+                          'apikey': supabaseKey,
+                          'Authorization': `Bearer ${supabaseKey}`,
+                          'Prefer': 'return=minimal'
+                        };
+                        
+                        // First, get the current blueprint data
+                        const getBlueprintResponse = await fetch(
+                          `${supabaseUrl}/rest/v1/blueprints?id=eq.${blueprint_id}&select=id,title,prompt,search_query,user_id`,
+                          {
+                            headers: {
+                              'Content-Type': 'application/json',
+                              'apikey': supabaseKey,
+                              'Authorization': `Bearer ${supabaseKey}`
+                            }
+                          }
+                        );
+                        
+                        if (!getBlueprintResponse.ok) {
+                          console.error('Error fetching blueprint data:', await getBlueprintResponse.text());
+                          throw new Error('Failed to fetch blueprint data');
+                        }
+                        
+                        const blueprintData = await getBlueprintResponse.json();
+                        console.log('Current blueprint data before update:', blueprintData);
+                        
+                        if (!blueprintData || blueprintData.length === 0) {
+                          throw new Error('Blueprint not found');
+                        }
+                        
+                        const currentBlueprint = blueprintData[0];
+                        
+                        // Check if the blueprint already has a user_id
+                        const needsUserUpdate = !currentBlueprint.user_id;
+                        
+                        // Use the current prompt from the request, or fall back to what's in the database
+                        const originalPrompt = prompt || currentBlueprint.prompt || currentBlueprint.search_query || '';
+                        
+                        console.log('Using prompt value for update:', originalPrompt);
+                        console.log('Need to update user_id?', needsUserUpdate);
+                        
+                        // Build update object
+                        const updateData: Record<string, unknown> = {
+                          title: blueprintTitle,
+                          prompt: originalPrompt, 
+                          search_query: originalPrompt
+                        };
+                        
+                        // Add description if available
+                        if (blueprintDescription) {
+                          updateData.details = blueprintDescription;
+                        }
+                        
+                        // Only set user_id if it's not already set
+                        if (needsUserUpdate) {
+                          updateData.user_id = applicationUserId;
+                        }
+                        
+                        // Update the blueprint with the title, prompt, and user_id
+                        const blueprintResponse = await fetch(
+                          blueprintUrl,
+                          {
+                            method: 'PATCH',
+                            headers,
+                            body: JSON.stringify(updateData)
+                          }
+                        );
+                        
+                        if (blueprintResponse.ok) {
+                          console.log(`Blueprint updated successfully (title, prompt${needsUserUpdate ? ', user_id' : ''})`);
                           
-                          // First, get the current blueprint data
-                          const getBlueprintResponse = await fetch(
-                            `${supabaseUrl}/rest/v1/blueprints?id=eq.${blueprint_id}&select=id,title,prompt,search_query,user_id`,
+                          // Now fetch the blueprint to verify the update
+                          const verifyResponse = await fetch(
+                            `${supabaseUrl}/rest/v1/blueprints?id=eq.${blueprint_id}&select=id,title,prompt,search_query,user_id,details`,
                             {
                               headers: {
                                 'Content-Type': 'application/json',
@@ -223,89 +299,28 @@ You MUST respond in JSON format with a blueprint title and an array of question 
                             }
                           );
                           
-                          if (!getBlueprintResponse.ok) {
-                            console.error('Error fetching blueprint data:', await getBlueprintResponse.text());
-                            throw new Error('Failed to fetch blueprint data');
+                          if (verifyResponse.ok) {
+                            const updatedBlueprintData = await verifyResponse.json();
+                            console.log('Blueprint after update:', updatedBlueprintData);
                           }
-                          
-                          const blueprintData = await getBlueprintResponse.json();
-                          console.log('Current blueprint data before update:', blueprintData);
-                          
-                          if (!blueprintData || blueprintData.length === 0) {
-                            throw new Error('Blueprint not found');
-                          }
-                          
-                          const currentBlueprint = blueprintData[0];
-                          
-                          // Check if the blueprint already has a user_id
-                          const needsUserUpdate = !currentBlueprint.user_id;
-                          
-                          // Use the current prompt from the request, or fall back to what's in the database
-                          const originalPrompt = prompt || currentBlueprint.prompt || currentBlueprint.search_query || '';
-                          
-                          console.log('Using prompt value for update:', originalPrompt);
-                          console.log('Need to update user_id?', needsUserUpdate);
-                          
-                          // Build update object
-                          const updateData: Record<string, unknown> = {
-                            title: blueprintTitle,
-                            prompt: originalPrompt, 
-                            search_query: originalPrompt
-                          };
-                          
-                          // Only set user_id if it's not already set
-                          if (needsUserUpdate) {
-                            updateData.user_id = applicationUserId;
-                          }
-                          
-                          // Update the blueprint with the title, prompt, and user_id
-                          const blueprintResponse = await fetch(
-                            blueprintUrl,
-                            {
-                              method: 'PATCH',
-                              headers,
-                              body: JSON.stringify(updateData)
-                            }
-                          );
-                          
-                          if (blueprintResponse.ok) {
-                            console.log(`Blueprint updated successfully (title, prompt${needsUserUpdate ? ', user_id' : ''})`);
-                            
-                            // Now fetch the blueprint to verify the update
-                            const verifyResponse = await fetch(
-                              `${supabaseUrl}/rest/v1/blueprints?id=eq.${blueprint_id}&select=id,title,prompt,search_query,user_id`,
-                              {
-                                headers: {
-                                  'Content-Type': 'application/json',
-                                  'apikey': supabaseKey,
-                                  'Authorization': `Bearer ${supabaseKey}`
-                                }
-                              }
-                            );
-                            
-                            if (verifyResponse.ok) {
-                              const updatedBlueprintData = await verifyResponse.json();
-                              console.log('Blueprint after update:', updatedBlueprintData);
-                            }
-                          } else {
-                            const error = await blueprintResponse.text();
-                            console.error('Error updating blueprint:', error);
-                          }
-                        } catch (titleError) {
-                          console.error('Error updating blueprint:', titleError);
-                          // Continue despite error - we still want to return the questions
+                        } else {
+                          const error = await blueprintResponse.text();
+                          console.error('Error updating blueprint:', error);
                         }
+                      } catch (titleError) {
+                        console.error('Error updating blueprint:', titleError);
+                        // Continue despite error - we still want to return the questions
                       }
-                      
-                      console.log('Note: user_id will not be associated with blueprint_questions due to schema limitations');
                     }
+                    
+                    console.log('Note: user_id will not be associated with blueprint_questions due to schema limitations');
                   }
                 }
               }
-            } catch (titleError) {
-              console.error('Error updating blueprint title:', titleError);
-              // Continue despite error - we still want to return the questions
             }
+          } catch (titleError) {
+            console.error('Error updating blueprint title:', titleError);
+            // Continue despite error - we still want to return the questions
           }
         }
         
@@ -413,6 +428,11 @@ You MUST respond in JSON format with a blueprint title and an array of question 
                           search_query: originalPrompt
                         };
                         
+                        // Add description if available
+                        if (blueprintDescription) {
+                          updateData.details = blueprintDescription;
+                        }
+                        
                         // Only set user_id if it's not already set
                         if (needsUserUpdate) {
                           updateData.user_id = applicationUserId;
@@ -433,7 +453,7 @@ You MUST respond in JSON format with a blueprint title and an array of question 
                           
                           // Now fetch the blueprint to verify the update
                           const verifyResponse = await fetch(
-                            `${supabaseUrl}/rest/v1/blueprints?id=eq.${blueprint_id}&select=id,title,prompt,search_query,user_id`,
+                            `${supabaseUrl}/rest/v1/blueprints?id=eq.${blueprint_id}&select=id,title,prompt,search_query,user_id,details`,
                             {
                               headers: {
                                 'Content-Type': 'application/json',
@@ -556,8 +576,13 @@ You MUST respond in JSON format with a blueprint title and an array of question 
           }
         }
 
-        // Return the questions to the client
-        return NextResponse.json({ questions: finalQuestions });
+        // Return the questions
+        return NextResponse.json({
+          questions: finalQuestions,
+          blueprint_title: blueprintTitle,
+          blueprint_description: blueprintDescription,
+          blueprint_id
+        });
       } catch (parseError) {
         console.error('Error parsing AI response:', parseError);
         
