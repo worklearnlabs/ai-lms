@@ -1,6 +1,18 @@
 import { NextResponse } from 'next/server';
 import { createServiceRoleClient } from "@/utils/supabase-admin";
 import { ensureUserInDatabase } from '@/utils/user-sync';
+import { createStandardServerClient } from "@/utils/supabase";
+import { z } from "zod";
+
+// Define the blueprint creation schema
+const BlueprintCreateSchema = z.object({
+  title: z.string().default("Untitled Blueprint"),
+  prompt: z.string().optional(),
+  visibility: z.enum(["public", "private"]).default("private"),
+  is_temporary: z.boolean().default(false),
+  content: z.any().optional(),
+  search_query: z.string().optional()
+});
 
 // Handler for GET /api/blueprints
 export async function GET(request: Request) {
@@ -188,120 +200,193 @@ export async function GET(request: Request) {
 }
 
 // Handler for POST /api/blueprints
-export async function POST(request: Request) {
-  console.log("=== Creating Blueprint ===");
-  
+export async function POST(req: Request) {
   try {
-    const jsonData = await request.json();
-    console.log("Request data received:", JSON.stringify(jsonData));
+    // Parse request body
+    const json = await req.json();
+
+    // Validate input
+    const result = BlueprintCreateSchema.safeParse(json);
+    if (!result.success) {
+      return NextResponse.json(
+        { error: 'Invalid input', details: result.error.format() },
+        { status: 400 }
+      );
+    }
+
+    const { title, prompt, visibility, is_temporary, search_query } = result.data;
     
-    // Extract blueprint data from the request
-    const title = jsonData.title || 'Untitled Blueprint';
-    const search_query = jsonData.search_query || jsonData.searchQuery;
-    const is_temporary = jsonData.is_temporary || false;
-    const content = jsonData.content || {};
-    
-    console.log("Extracted from request:");
-    console.log("- title:", title);
-    console.log("- search_query:", search_query);
-    console.log("- is_temporary:", is_temporary);
-    
-    // Create service client
-    const serviceClient = createServiceRoleClient();
-    
-    // Get auth session 
-    const authResponse = await serviceClient.auth.getSession();
-    
-    // Check if we have a session with a user
-    if (!authResponse.data.session || !authResponse.data.session.user) {
+    // Don't allow setting search_query during initial blueprint creation
+    if (search_query) {
+      console.warn('Ignoring search_query provided during blueprint creation - this should only be set during finalization');
+    }
+
+    // Initialize Supabase client
+    const supabase = createStandardServerClient();
+
+    // Get the current authenticated user
+    const { data: { user } } = await supabase.auth.getUser();
+
+    // Check if this is a temporary blueprint
+    if (is_temporary === true) {
+      console.log('Creating temporary blueprint - authentication not required');
+      
       // For temporary blueprints, we can create without a user
-      if (is_temporary) {
-        console.log("Creating temporary blueprint without user association");
+      // Use service role client to bypass auth requirements
+      const serviceClient = createServiceRoleClient();
+      
+      // Create the blueprint with a system user ID or no user ID
+      const blueprintData = {
+        title,
+        prompt,
+        is_verified: false,
+        visibility: visibility || 'private',
+        content: [], // Empty array for content
+        is_temporary: true, // Force is_temporary to true for safety
+        search_query: '', // IMPORTANT: Explicitly set search_query to empty string, not null or undefined
+        // Note: No user_id for temporary blueprints if not authenticated
+        ...(user ? { user_id: user.id } : {})
+      };
+
+      console.log('Creating new temporary blueprint:', {
+        ...blueprintData,
+        user_id: user ? 'REDACTED' : 'NONE (anonymous)' 
+      });
+      
+      // Use service client for temporary blueprints to bypass auth requirements
+      const { data: blueprint, error } = await serviceClient
+        .from('blueprints')
+        .insert(blueprintData)
+        .select('*')
+        .single();
+
+      if (error) {
+        console.error('Error creating temporary blueprint:', error);
+        return NextResponse.json(
+          { error: 'Failed to create temporary blueprint', details: error.message },
+          { status: 500 }
+        );
+      }
+
+      console.log('Temporary blueprint created successfully:', blueprint.id);
+      
+      // Ensure the blueprint is committed - try to fetch it to confirm
+      let verificationAttempts = 0;
+      const maxAttempts = 3;
+      let verifiedBlueprint = null;
+
+      while (verificationAttempts < maxAttempts && !verifiedBlueprint) {
+        verificationAttempts++;
+        console.log(`Temporary blueprint verification attempt ${verificationAttempts} for ID: ${blueprint.id}`);
         
-        // Ensure we store the original prompt in the prompt field
-        // Use search_query as prompt if available, otherwise use title
-        const blueprintPrompt = search_query || title;
+        // Add a delay before verification to allow database propagation
+        await new Promise(resolve => setTimeout(resolve, 300 * verificationAttempts));
         
-        console.log("Creating temporary blueprint with:");
-        console.log("- title:", title);
-        console.log("- search_query:", search_query);
-        console.log("- prompt (original query):", blueprintPrompt);
-        
-        const result = await serviceClient
+        const { data: verifyData, error: verifyError } = await serviceClient
           .from('blueprints')
-          .insert({
-            title,
-            search_query,
-            prompt: blueprintPrompt, // Store the original query/prompt
-            is_temporary: true, // Force is_temporary to true
-            content
-          })
-          .select()
+          .select('id, title, is_temporary')
+          .eq('id', blueprint.id)
           .single();
-        
-        if (result.error) {
-          console.error("Error creating temporary blueprint:", result.error);
-          return NextResponse.json({ error: result.error.message }, { status: 500 });
+
+        if (!verifyError && verifyData) {
+          console.log(`Temporary blueprint ${blueprint.id} verified on attempt ${verificationAttempts}`);
+          verifiedBlueprint = verifyData;
+          break;
         }
         
-        console.log("Temporary blueprint created successfully:", result.data?.id);
-        return NextResponse.json(result.data, { status: 201 });
+        console.warn(`Temporary blueprint verification attempt ${verificationAttempts} failed:`, verifyError);
       }
       
-      // For non-temporary blueprints, require authentication
+      if (!verifiedBlueprint) {
+        console.warn(`Could not verify temporary blueprint ${blueprint.id}, but continuing as it may be a replication delay`);
+      }
+      
+      // Return the created blueprint regardless of verification
+      return NextResponse.json(blueprint);
+    }
+    
+    // For non-temporary blueprints, require authentication
+    if (!user) {
       return NextResponse.json(
-        { error: "Authentication required for creating blueprints" },
+        { error: 'Authentication required for creating permanent blueprints' },
         { status: 401 }
       );
     }
-    
-    // Get auth user ID and ensure user exists in database
-    const authUserId = authResponse.data.session.user.id;
-    console.log("Authenticated user ID from session:", authUserId);
-    
-    // Use our utility to ensure user exists and get the correct user ID
-    const { success, userId, error } = await ensureUserInDatabase(authUserId);
-    
-    if (!success || !userId) {
-      console.error("Failed to ensure user exists:", error);
+
+    // Create the permanent blueprint
+    const blueprintData = {
+      title,
+      prompt,
+      is_verified: false,
+      visibility: visibility || 'private',
+      user_id: user.id,
+      content: [], // Empty array for content
+      is_temporary: false,
+      search_query: '' // IMPORTANT: Explicitly set search_query to empty string, not null or undefined
+    };
+
+    console.log('Creating new permanent blueprint:', {
+      ...blueprintData,
+      user_id: 'REDACTED'
+    });
+
+    // Insert the blueprint
+    const { data: blueprint, error } = await supabase
+      .from('blueprints')
+      .insert(blueprintData)
+      .select('*')
+      .single();
+
+    if (error) {
+      console.error('Error creating blueprint:', error);
       return NextResponse.json(
-        { error: "Could not associate blueprint with user: " + (error || "Unknown error") },
+        { error: 'Failed to create blueprint', details: error.message },
         { status: 500 }
       );
     }
-    
-    // Create the blueprint with the verified user ID
-    console.log("Creating blueprint with user ID:", userId);
-    
-    // Ensure we store the original prompt in the prompt field
-    // Use search_query as prompt if available, otherwise use title
-    const blueprintPrompt = search_query || title;
-    
-    const result = await serviceClient
-      .from('blueprints')
-      .insert({
-        title,
-        search_query,
-        prompt: blueprintPrompt, // Store the original query/prompt
-        is_temporary,
-        content,
-        user_id: userId
-      })
-      .select()
-      .single();
-    
-    if (result.error) {
-      console.error("Error creating blueprint:", result.error);
-      return NextResponse.json({ error: result.error.message }, { status: 500 });
+
+    // Ensure the blueprint is committed to the database by verifying it exists
+    // This prevents race conditions where the blueprint is created but not yet visible
+    let verificationAttempts = 0;
+    const maxAttempts = 3;
+    let verifiedBlueprint = null;
+
+    while (verificationAttempts < maxAttempts) {
+      verificationAttempts++;
+      console.log(`Verification attempt ${verificationAttempts} for blueprint ${blueprint.id}`);
+      
+      // Add a delay before verification
+      await new Promise(resolve => setTimeout(resolve, 500 * verificationAttempts));
+      
+      const { data: verifyData, error: verifyError } = await supabase
+        .from('blueprints')
+        .select('*')
+        .eq('id', blueprint.id)
+        .single();
+
+      if (!verifyError && verifyData) {
+        console.log(`Blueprint ${blueprint.id} verified successfully on attempt ${verificationAttempts}`);
+        verifiedBlueprint = verifyData;
+        break;
+      }
+      
+      console.warn(`Verification attempt ${verificationAttempts} failed:`, verifyError);
     }
-    
-    console.log("Blueprint created successfully:", result.data?.id);
-    return NextResponse.json(result.data, { status: 201 });
+
+    if (!verifiedBlueprint) {
+      console.error(`Failed to verify blueprint ${blueprint.id} after ${maxAttempts} attempts`);
+      // Continue anyway and return the original blueprint data
+    }
+
+    console.log('Blueprint created successfully:', blueprint.id);
+
+    // Return the created blueprint
+    return NextResponse.json(blueprint);
   } catch (error) {
-    console.error("API endpoint error:", error);
+    console.error('Unhandled error in POST /api/blueprints:', error);
     return NextResponse.json(
-      { error: "Failed to process request" },
-      { status: 400 }
+      { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' },
+      { status: 500 }
     );
   }
 } 

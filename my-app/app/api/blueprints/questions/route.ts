@@ -4,6 +4,7 @@ import { generateText } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { extractSupabaseTokenFromCookies, getUserIdFromToken } from '@/utils/supabase-auth';
 import { ensureUserInDatabase } from '@/utils/user-sync';
+import { createStandardServerClient } from '@/utils/supabase';
 
 // Allow longer timeout for the AI to generate questions
 export const maxDuration = 30;
@@ -22,7 +23,7 @@ export const maxDuration = 30;
 // Define the schema for the request body
 const QuestionsRequestSchema = z.object({
   prompt: z.string().min(1, "Prompt is required"),
-  skill_level: z.enum(['beginner', 'intermediate', 'advanced'] as const).optional(),
+  skill_level: z.enum(['beginner', 'intermediate', 'advanced']).optional(),
   learning_objective: z.string().optional(),
   blueprint_id: z.string().uuid().optional(), // Add optional blueprint_id param
 });
@@ -32,6 +33,53 @@ export type Question = {
   id: number;
   title: string;
   content: string;
+}
+
+// Function to verify blueprint exists
+async function verifyBlueprintExists(blueprintId: string): Promise<boolean> {
+  console.log(`Verifying blueprint exists: ${blueprintId}`);
+  
+  // Initialize Supabase client for verification
+  const supabase = createStandardServerClient();
+  
+  // Add retry logic for blueprint verification
+  let blueprintVerified = false;
+  let verifyAttempts = 0;
+  const maxVerifyAttempts = 3;
+  
+  while (verifyAttempts < maxVerifyAttempts && !blueprintVerified) {
+    verifyAttempts++;
+    
+    // Add a delay between attempts (except first attempt)
+    if (verifyAttempts > 1) {
+      await new Promise(resolve => setTimeout(resolve, 500 * verifyAttempts));
+    }
+    
+    try {
+      // Check if the blueprint exists
+      const { data: blueprint, error } = await supabase
+        .from('blueprints')
+        .select('id')
+        .eq('id', blueprintId)
+        .single();
+      
+      if (!error && blueprint) {
+        console.log(`Blueprint verified on attempt ${verifyAttempts}: ${blueprint.id}`);
+        blueprintVerified = true;
+        break;
+      } else {
+        console.warn(`Blueprint verification attempt ${verifyAttempts} failed:`, error);
+      }
+    } catch (verifyError) {
+      console.error(`Error during verification attempt ${verifyAttempts}:`, verifyError);
+    }
+  }
+  
+  if (!blueprintVerified) {
+    console.error(`Blueprint ${blueprintId} not found after ${maxVerifyAttempts} attempts`);
+  }
+  
+  return blueprintVerified;
 }
 
 export async function POST(req: Request) {
@@ -56,7 +104,7 @@ export async function POST(req: Request) {
     const { prompt, skill_level, learning_objective, blueprint_id } = validationResult.data;
     console.log('Processing prompt:', prompt);
     
-    // If a blueprint_id is provided, verify it exists
+    // If a blueprint_id is provided, try to verify it exists but continue anyway
     if (blueprint_id) {
       try {
         // Get Supabase credentials for API access
@@ -66,33 +114,15 @@ export async function POST(req: Request) {
         if (!supabaseUrl || !supabaseKey) {
           console.warn('Missing Supabase URL or service role key, continuing without verification');
         } else {
-          // Check if the blueprint exists
-          console.log(`Verifying blueprint_id ${blueprint_id} exists before processing`);
+          // Verify blueprint exists with retry logic
+          const blueprintExists = await verifyBlueprintExists(blueprint_id);
           
-          const blueprintCheckResponse = await fetch(
-            `${supabaseUrl}/rest/v1/blueprints?id=eq.${blueprint_id}&select=id`,
-            {
-              headers: {
-                'Content-Type': 'application/json',
-                'apikey': supabaseKey,
-                'Authorization': `Bearer ${supabaseKey}`
-              }
-            }
-          );
-          
-          if (!blueprintCheckResponse.ok) {
-            console.error('Error checking blueprint:', await blueprintCheckResponse.text());
-            // Continue despite error - we'll try to generate questions anyway
-          } else {
-            const blueprintData = await blueprintCheckResponse.json();
-            if (!blueprintData || blueprintData.length === 0) {
-              console.error('Blueprint not found with ID:', blueprint_id);
-              return NextResponse.json(
-                { error: 'Blueprint not found' },
-                { status: 404 }
-              );
-            }
+          if (blueprintExists) {
             console.log('Blueprint verified, continuing with question generation');
+          } else {
+            console.warn('Blueprint not found, but continuing with question generation anyway');
+            // Note: We'll continue even if verification fails, to handle race conditions
+            // This is different from the previous behavior where we returned a 404
           }
         }
       } catch (verifyError) {
@@ -100,9 +130,11 @@ export async function POST(req: Request) {
         // Continue despite error - we can still generate questions
       }
     }
-
-    // Create system prompt for the AI
-    const systemPrompt = `
+    
+    // Generate questions using AI
+    try {
+      // Create system prompt for the AI
+      const systemPrompt = `
 You are an AI educator and consultant assistant.
 Based on the user's request for: "${prompt}"
 
@@ -137,7 +169,6 @@ You MUST respond in JSON format with a blueprint title, description, and an arra
 }
 `;
 
-    try {
       console.log('Calling Vercel AI SDK with gpt-4-turbo and JSON response format...');
       
       // Use the Vercel AI SDK to generate text with JSON formatting
@@ -260,8 +291,7 @@ You MUST respond in JSON format with a blueprint title, description, and an arra
                         // Build update object
                         const updateData: Record<string, unknown> = {
                           title: blueprintTitle,
-                          prompt: originalPrompt, 
-                          search_query: originalPrompt
+                          prompt: originalPrompt
                         };
                         
                         // Add description if available
@@ -424,8 +454,7 @@ You MUST respond in JSON format with a blueprint title, description, and an arra
                         // Build update object
                         const updateData: Record<string, unknown> = {
                           title: blueprintTitle,
-                          prompt: originalPrompt, 
-                          search_query: originalPrompt
+                          prompt: originalPrompt
                         };
                         
                         // Add description if available

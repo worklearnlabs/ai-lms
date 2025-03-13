@@ -68,7 +68,46 @@ After gathering all necessary information, your final response should contain:
 The searchQuery should contain specific terms that will help generate a comprehensive implementation plan.
 `;
 
+/**
+ * This will handle the /api/blueprints/reason/finalize path by redirecting to the finalize handler
+ * This is necessary to maintain backward compatibility with existing frontend code
+ */
+export async function handleFinalizeRequest(req: Request) {
+  try {
+    // Create URL for the finalize endpoint
+    const finalizeUrl = new URL('/api/blueprints/reason/finalize', req.url);
+    
+    // Forward the request to the finalize handler
+    const finalizeReq = new Request(finalizeUrl, {
+      method: 'POST',
+      headers: req.headers,
+      body: req.body,
+      signal: req.signal,
+    });
+    
+    const response = await fetch(finalizeReq);
+    return response;
+  } catch (error) {
+    console.error('Error redirecting to finalize endpoint:', error);
+    return NextResponse.json(
+      { error: 'Failed to process finalize request' },
+      { status: 500 }
+    );
+  }
+}
+
+// Handle POST requests to '/api/blueprints/reason'
 export async function POST(req: Request) {
+  // Check the URL path to see if we need to handle finalize
+  const url = new URL(req.url);
+  const path = url.pathname;
+  
+  // If this is a finalize request, handle it separately
+  if (path.endsWith('/finalize')) {
+    return handleFinalizeRequest(req);
+  }
+  
+  // Regular reasoning request handling
   try {
     // Parse request body
     const json = await req.json();

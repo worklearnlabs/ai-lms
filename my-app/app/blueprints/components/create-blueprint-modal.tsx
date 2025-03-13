@@ -113,18 +113,28 @@ export function CreateBlueprintModal({
   // Example blueprints with difficulty levels - now we'll fetch these dynamically
   const [examples, setExamples] = useState([
     {
-      title: "LinkedIn Content Analyzer",
-      content: "I want an AI that monitors LinkedIn for posts about artificial intelligence, machine learning, and venture capital funding. It should collect posts from the last 24 hours, analyze key themes, extract metrics (like engagement rates), and generate a daily summary report highlighting emerging trends and noteworthy discussions.",
-      difficulty: "Easy"
-    },
-    {
-      title: "Content Research Assistant",
-      content: "I need an AI that can research a specific topic across multiple sources (web articles, academic papers, and social posts), extract key insights, identify conflicting information, and summarize findings with proper citations. The tool should handle complex topics and organize information logically.",
+      title: "Customer Support Email Classifier",
+      content: "I need an AI that automatically categorizes incoming customer support emails based on urgency, topic, and sentiment. It should route high-priority issues to the appropriate team, suggest template responses, and track resolution time metrics to improve our customer service efficiency.",
       difficulty: "Medium"
     },
     {
-      title: "Weekly Market Trend Analyzer",
-      content: "Create an AI that collects financial news from major publications, tracks stock performance for a specific industry segment, identifies correlations between news events and market movements, and produces comprehensive weekly reports with visualizations of key trends and actionable insights.",
+      title: "Meeting Transcription & Action Items",
+      content: "Build an AI that transcribes video conference meetings, identifies key discussion points, extracts action items with assigned owners, and generates a structured summary with timestamps. It should integrate with calendar apps to send recaps to all participants after the meeting ends.",
+      difficulty: "Medium"
+    },
+    {
+      title: "Personalized Learning Path Generator",
+      content: "Create an AI that analyzes a student's learning history, strengths, weaknesses, and goals to generate a personalized educational pathway. It should recommend specific resources (videos, articles, exercises) from our content library, adapt based on progress, and provide motivational feedback throughout the learning journey.",
+      difficulty: "Hard"
+    },
+    {
+      title: "Social Media Content Calendar",
+      content: "I need an AI that analyzes trending topics across Twitter, Instagram, and TikTok, then generates a month's worth of content ideas tailored to my business niche. It should suggest optimal posting times, hashtags, and content formats based on audience engagement patterns.",
+      difficulty: "Easy"
+    },
+    {
+      title: "Code Review Assistant",
+      content: "Build an AI that analyzes pull requests in our GitHub repository, identifies potential bugs, security vulnerabilities, and performance issues, and suggests code improvements following our team's style guide. It should integrate with our CI/CD pipeline and prioritize feedback based on severity.",
       difficulty: "Hard"
     }
   ]);
@@ -453,329 +463,162 @@ export function CreateBlueprintModal({
 
   // Fetch AI-generated questions based on the prompt
   const fetchQuestions = async (userPrompt: string, blueprintId: string) => {
+    console.log('Fetching questions for prompt:', userPrompt);
     setIsLoading(true);
     
-    try {
-      console.log('Fetching questions for prompt:', userPrompt);
-      
-      // Now fetch questions, including the blueprint_id
-      const response = await fetch('/api/blueprints/questions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          prompt: userPrompt,
-          blueprint_id: blueprintId 
-        }),
-      });
-      
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status} ${response.statusText}`);
-      }
-      
-      const data = await response.json();
-      console.log('Questions API response:', data);
-      
-      // Check if there are any errors from the API but it still returned fallback questions
-      if (data.error && data.questions) {
-        console.warn('API returned an error but provided fallback questions:', data.error);
-        toast.warning("Using default questions", {
-          description: "We couldn't generate custom questions based on your prompt, so we're using default ones."
-        });
-      }
-      
-      // Check if we received a blueprint title or description and update the state
-      if (data.blueprint_title) {
-        setTitle(data.blueprint_title);
-      }
-      
-      if (data.blueprint_description) {
-        // If we have a description state, update it
-        if (typeof setDescription === 'function') {
-          setDescription(data.blueprint_description);
-        }
-      }
-      
-      if (data.questions && Array.isArray(data.questions)) {
-        console.log('Received questions array:', data.questions);
-        
-        // Ensure we have at least 4 questions
-        let questionsToUse = data.questions;
-        if (questionsToUse.length < 4) {
-          console.log('Adding additional generic questions to reach minimum of 4');
-          const genericQuestions = [
-            {
-              id: 901,
-              title: "Target audience",
-              content: "Who will be using this AI tool? What's their technical background and role?"
-            },
-            {
-              id: 902,
-              title: "Use frequency",
-              content: "How often will this AI tool be used? Is it for daily operations or occasional tasks?"
-            },
-            {
-              id: 903,
-              title: "Success criteria",
-              content: "What metrics or outcomes will determine if this AI tool is successful?"
-            },
-            {
-              id: 904,
-              title: "Integration needs",
-              content: "Does this AI need to integrate with existing systems or tools? Which ones?"
-            }
-          ];
-          
-          // Add only as many generic questions as needed
-          const additionalNeeded = 4 - questionsToUse.length;
-          questionsToUse = [
-            ...questionsToUse,
-            ...genericQuestions.slice(0, additionalNeeded)
-          ];
-        }
-        
-        // Make sure all questions have the required properties
-        const validatedQuestions = questionsToUse.map((q: QuestionResponse, index: number) => ({
-          id: typeof q.id === 'number' ? q.id : index + 1,
-          title: q.title || `Question ${index + 1}`,
-          content: q.content || "Please provide more details about this aspect of your project."
-        }));
-        
-        // Initialize question status map
-        const initialStatus = validatedQuestions.reduce((acc: QuestionStatusMap, q: { id: number; title: string; content: string }) => {
-          acc[q.id] = "pending";
-          return acc;
-        }, {});
-        
-        setQuestions(validatedQuestions);
-        setQuestionStatus(initialStatus);
-        setActiveQuestionIndex(0); // Focus on the first question
-        
-        // No longer need to set the current step here since it's handled in handleInitialPrompt
-      } else {
-        console.error('Invalid response format from questions API:', data);
-        toast.error("Invalid response format", {
-          description: "We received an unexpected response format from our AI service."
-        });
-      }
-      
-    } catch (error) {
-      console.error('Error fetching questions:', error);
-      toast.error("Failed to generate questions", {
-        description: error instanceof Error ? error.message : "Please try again later"
-      });
-      throw error; // Rethrow to be handled by caller
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Handle the initial prompt submission
-  const handleInitialPrompt = async () => {
-    if (!prompt || prompt.trim() === '') {
-      toast.error("Please enter a prompt for your blueprint");
-      return;
-    }
+    // Add retry logic for questions API
+    let fetchAttempts = 0;
+    const maxFetchAttempts = 3;
+    let success = false;
+    let questionsData = null;
     
-    setIsLoading(true);
-    
-    try {
-      // Step 1: Create a temporary blueprint first
-      if (!tempBlueprintId) {
-        console.log("No temporary blueprint ID found, creating one now");
-        
-        // First check if we already have a similar blueprint in progress
-        try {
-          // Get most recently created blueprints to see if we have a matching one
-          // Note: This requires implementing a /api/blueprints/recent endpoint
-          // that returns recent blueprints with limit parameter
-          const checkResponse = await fetch('/api/blueprints/recent?limit=5');
-          
-          if (checkResponse.ok) {
-            const recentBlueprints = await checkResponse.json();
-            console.log("Recent blueprints:", recentBlueprints);
-            
-            // Look for a matching blueprint with this prompt
-            const matchingBlueprint = recentBlueprints.find((bp: { prompt?: string; is_temporary?: boolean; id: string }) => 
-              bp.prompt && bp.prompt.trim() === prompt.trim() && bp.is_temporary
-            );
-            
-            if (matchingBlueprint) {
-              console.log(`Found existing blueprint with matching prompt: ${matchingBlueprint.id}`);
-              setTempBlueprintId(matchingBlueprint.id);
-              await fetchQuestions(prompt, matchingBlueprint.id);
-              setCurrentStep('conversation');
-              return;
-            }
-          }
-        } catch (checkError) {
-          console.error("Error checking for existing blueprints:", checkError);
-          // Continue with creating a new blueprint
+    while (fetchAttempts < maxFetchAttempts && !success) {
+      fetchAttempts++;
+      console.log(`Fetching questions attempt ${fetchAttempts}`);
+      
+      try {
+        // Add delay for subsequent attempts (exponential backoff)
+        if (fetchAttempts > 1) {
+          const backoffTime = Math.min(1000 * Math.pow(2, fetchAttempts - 1), 5000);
+          console.log(`Waiting ${backoffTime}ms before retry attempt ${fetchAttempts}`);
+          await new Promise(resolve => setTimeout(resolve, backoffTime));
         }
-        
-        const blueprintResponse = await fetch('/api/blueprints', {
+      
+        // Now fetch questions, including the blueprint_id
+        const response = await fetch('/api/blueprints/questions', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            title: prompt.split('\n')[0].slice(0, 50) || 'Draft Blueprint',
-            prompt: prompt, // Include the prompt but not as search_query
-            visibility: 'private',
-            is_temporary: true // Flag this as a temporary blueprint
+            prompt: userPrompt,
+            blueprint_id: blueprintId
           }),
         });
         
-        if (!blueprintResponse.ok) {
-          const errorData = await blueprintResponse.json().catch(() => null);
-          console.error("Blueprint creation failed with status:", blueprintResponse.status, errorData);
-          throw new Error(`Failed to create temporary blueprint: ${blueprintResponse.status}`);
-        }
-        
-        const blueprintData = await blueprintResponse.json();
-        if (!blueprintData || !blueprintData.id) {
-          console.error("Blueprint creation response did not include an ID:", blueprintData);
-          throw new Error("Invalid response from blueprint creation API");
-        }
-        
-        console.log('Created temporary blueprint with ID:', blueprintData.id);
-        setTempBlueprintId(blueprintData.id);
-        
-        // Add a delay to ensure the blueprint is persisted before verifying or using it
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        // Verify the blueprint exists by making a HEAD request
-        try {
-          const verifyResponse = await fetch(`/api/blueprints/${blueprintData.id}`, {
-            method: 'HEAD'
-          });
+        if (!response.ok) {
+          const statusText = response.statusText;
+          const errorText = await response.text().catch(() => "No error details");
           
-          if (!verifyResponse.ok) {
-            console.warn(`Verification check for blueprint ${blueprintData.id} failed with status:`, verifyResponse.status);
-            if (verifyResponse.status === 404) {
-              // If verification fails with 404, add a longer delay and try again
-              console.log("Blueprint not found on first verification, waiting longer...");
-              await new Promise(resolve => setTimeout(resolve, 2000));
-              
-              const retryVerify = await fetch(`/api/blueprints/${blueprintData.id}`, {
-                method: 'HEAD'
-              });
-              
-              if (!retryVerify.ok) {
-                console.error(`Blueprint ${blueprintData.id} still not found after retry`);
-                throw new Error("Failed to verify blueprint existence");
-              } else {
-                console.log(`Blueprint ${blueprintData.id} verified successfully on retry`);
-              }
-            }
-          } else {
-            console.log(`Blueprint ${blueprintData.id} verified successfully`);
+          // For 404 errors, we'll continue retrying - the blueprint might not be fully propagated
+          if (response.status === 404 && fetchAttempts < maxFetchAttempts) {
+            console.warn(`Blueprint not found (attempt ${fetchAttempts}/${maxFetchAttempts}), retrying...`);
+            throw new Error(`Blueprint not found (404): ${errorText}`);
           }
-        } catch (verifyError) {
-          console.warn("Failed to verify blueprint existence:", verifyError);
-          // Continue anyway, but log this issue
+          
+          // For other errors or final 404 attempt, throw the error to be handled by caller
+          throw new Error(`API error: ${response.status} ${statusText} - ${errorText}`);
         }
         
-        // Step 2: Now fetch questions using the temporary blueprint ID
-        await fetchQuestions(prompt, blueprintData.id);
-      } else {
-        console.log('Using existing temporary blueprint ID:', tempBlueprintId);
-        // If we already have a temporary blueprint ID, just fetch questions
-        await fetchQuestions(prompt, tempBlueprintId);
+        questionsData = await response.json();
+        success = true;
+        break;
+      } catch (fetchError) {
+        console.error(`Error during fetch attempt ${fetchAttempts}:`, fetchError);
+        
+        // If this is the last attempt, throw to be handled by the outer try/catch
+        if (fetchAttempts === maxFetchAttempts) {
+          throw fetchError;
+        }
+        
+        // If it's a 404, we continue to retry in the loop
+        // For other errors, we also retry, but with different logging
+        if (!(fetchError instanceof Error && fetchError.message.includes('404'))) {
+          console.error(`Unexpected error during fetch attempt ${fetchAttempts}:`, fetchError);
+        }
+      }
+    }
+    
+    if (!questionsData) {
+      throw new Error("Failed to fetch questions after multiple attempts");
+    }
+    
+    console.log('Questions API response:', questionsData);
+    
+    // Check if there are any errors from the API but it still returned fallback questions
+    if (questionsData.error && questionsData.questions) {
+      console.warn('API returned an error but provided fallback questions:', questionsData.error);
+      toast.warning("Using default questions", {
+        description: "We couldn't generate custom questions based on your prompt, so we're using default ones."
+      });
+    }
+    
+    // Check if we received a blueprint title or description and update the state
+    if (questionsData.blueprint_title) {
+      setTitle(questionsData.blueprint_title);
+    }
+    
+    if (questionsData.blueprint_description) {
+      // If we have a description state, update it
+      if (typeof setDescription === 'function') {
+        setDescription(questionsData.blueprint_description);
+      }
+    }
+    
+    if (questionsData.questions && Array.isArray(questionsData.questions)) {
+      console.log('Received questions array:', questionsData.questions);
+      
+      // Ensure we have at least 4 questions
+      let questionsToUse = questionsData.questions;
+      if (questionsToUse.length < 4) {
+        console.log('Adding additional generic questions to reach minimum of 4');
+        const genericQuestions = [
+          {
+            id: 901,
+            title: "Target audience",
+            content: "Who will be using this AI tool? What's their technical background and role?"
+          },
+          {
+            id: 902,
+            title: "Use frequency",
+            content: "How often will this AI tool be used? Is it for daily operations or occasional tasks?"
+          },
+          {
+            id: 903,
+            title: "Success criteria",
+            content: "What metrics or outcomes will determine if this AI tool is successful?"
+          },
+          {
+            id: 904,
+            title: "Integration needs",
+            content: "Does this AI need to integrate with existing systems or tools? Which ones?"
+          }
+        ];
+        
+        // Add only as many generic questions as needed
+        const additionalNeeded = 4 - questionsToUse.length;
+        questionsToUse = [
+          ...questionsToUse,
+          ...genericQuestions.slice(0, additionalNeeded)
+        ];
       }
       
-      // Move to conversation step
-      setCurrentStep('conversation');
-    } catch (error) {
-      console.error('Error in initial prompt handling:', error);
-      toast.error("Failed to process your request", {
-        description: error instanceof Error ? error.message : "Please try again later"
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-  
-  // Handle submission of the current question and optionally move to the next one
-  const handleQuestionSubmit = async (moveToNext: boolean = true) => {
-    if (!currentResponse.trim()) {
-      toast.warning("Please provide a response before continuing");
-      return false;
-    }
-    
-    const currentQuestion = questions[activeQuestionIndex];
-    if (!currentQuestion) {
-      console.error("No active question found");
-      return false;
-    }
-    
-    // Save to local state
-    const updatedResponses = {
-      ...responses,
-      [currentQuestion.id]: currentResponse
-    };
-    
-    setResponses(updatedResponses);
-    
-    // Mark as complete
-    setQuestionStatus(prev => ({
-      ...prev,
-      [currentQuestion.id]: "complete"
-    }));
-    
-    // Use a state variable to track saving status
-    let savedSuccessfully = false;
-    
-    // Save response to database if we have a blueprint_id
-    if (tempBlueprintId) {
-      try {
-        // Show unobtrusive loading indicator
-        toast.loading("Saving your response...", { id: "saving-response" });
-        
-        await saveResponseToDatabase(tempBlueprintId, currentQuestion.id.toString(), currentResponse);
-        
-        console.log(`Response saved for question ${currentQuestion.id}`);
-        toast.success("Response saved", { id: "saving-response" });
-        savedSuccessfully = true;
-      } catch (error) {
-        console.error('Error saving response:', error);
-        
-        // More specific error message
-        toast.error("Couldn't save your response", { 
-          id: "saving-response",
-          description: error instanceof Error 
-            ? error.message 
-            : "Your response was saved locally but couldn't be synced to the server."
-        });
-        
-        // Despite error, we still want to continue
-        savedSuccessfully = false;
-      }
+      // Make sure all questions have the required properties
+      const validatedQuestions = questionsToUse.map((q: QuestionResponse, index: number) => ({
+        id: typeof q.id === 'number' ? q.id : index + 1,
+        title: q.title || `Question ${index + 1}`,
+        content: q.content || "Please provide more details about this aspect of your project."
+      }));
+      
+      // Initialize question status map
+      const initialStatus = validatedQuestions.reduce((acc: QuestionStatusMap, q: { id: number; title: string; content: string }) => {
+        acc[q.id] = "pending";
+        return acc;
+      }, {});
+      
+      setQuestions(validatedQuestions);
+      setQuestionStatus(initialStatus);
+      setActiveQuestionIndex(0); // Focus on the first question
+      
+      // No longer need to set the current step here since it's handled in handleInitialPrompt
     } else {
-      console.warn('No temporary blueprint ID available, response not saved to database');
-      toast.warning("Response saved locally only", {
-        description: "Your response couldn't be saved to the server because no blueprint ID is available."
+      console.error('Invalid response format from questions API:', questionsData);
+      toast.error("Invalid response format", {
+        description: "We received an unexpected response format from our AI service."
       });
     }
     
-    // Optionally move to the next question
-    if (moveToNext && activeQuestionIndex < questions.length - 1) {
-      // Clear the response field for the next question
-      setCurrentResponse("");
-      
-      // Set the new active question
-      const nextIndex = activeQuestionIndex + 1;
-      setActiveQuestionIndex(nextIndex);
-      
-      // If this question has a saved response, populate the text field
-      const nextQuestion = questions[nextIndex];
-      if (nextQuestion && responses[nextQuestion.id]) {
-        setCurrentResponse(responses[nextQuestion.id]);
-      }
-    }
-    
-    return savedSuccessfully;
+    setIsLoading(false);
   };
   
   // Handle question click to change active question
@@ -1021,29 +864,66 @@ export function CreateBlueprintModal({
   
   // Handle creating the final blueprint
   const handleCreateBlueprint = async () => {
-    if (!finalData) return;
+    // Check that we have all required data
+    if (!finalData || !finalData.title) {
+      toast.error("Blueprint title is required");
+      return;
+    }
+    
+    if (!tempBlueprintId) {
+      toast.error("No temporary blueprint ID found");
+      return;
+    }
+    
+    if (questions.length === 0 || Object.keys(responses).length === 0) {
+      toast.error("Please complete at least one question before creating the blueprint");
+      return;
+    }
     
     setIsLoading(true);
+    toast.loading("Creating your blueprint...", { id: "create-blueprint" });
     
     try {
-      // Determine if we're updating an existing blueprint or creating a new one
+      // First, check for any required fields and gather data
       const isUpdating = !!createdBlueprintId;
-      console.log(isUpdating ? "Updating existing blueprint" : "Creating new blueprint");
       
-      const method = isUpdating ? 'PATCH' : 'POST';
+      // Use either the created ID or the temporary one
+      const blueprintId = createdBlueprintId || tempBlueprintId;
+      
+      // Create the endpoint URL
       const endpoint = isUpdating 
-        ? `/api/blueprints/${createdBlueprintId}` 
+        ? `/api/blueprints/${blueprintId}`
         : '/api/blueprints';
       
-      // Combine question responses into content object
+      // Use PATCH for updating, POST for creating
+      const method = isUpdating ? 'PATCH' : 'POST';
+      
+      // Get the user's prompt for comparison
+      if (!prompt) {
+        throw new Error("No prompt available");
+      }
+      
+      // Gather responses for the content object
       const content = {
-        questions,
-        responses
+        questions: questions.map(q => ({
+          id: q.id,
+          title: q.title,
+          content: q.content,
+          response: responses[q.id] || ""
+        })),
+        responses: { ...responses }
       };
       
-      // Prepare the blueprint data
-      // Include the search_query generated by the API in generateFinalBlueprint()
-      // This search_query will be used by the research agent (Perplexity)
+      // Log just before sending to help debug search_query issues
+      console.log('Final data before blueprint creation:', {
+        title: finalData.title,
+        search_query: finalData.search_query,
+        description: finalData.description,
+        prompt,
+        contentKeys: Object.keys(content)
+      });
+      
+      // Construct the blueprint data, only including search_query if defined
       const blueprintData = {
         title: finalData.title,
         ...(finalData.search_query ? { search_query: finalData.search_query } : {}), // Only include if defined
@@ -1079,20 +959,26 @@ export function CreateBlueprintModal({
       }
       
       // Show success message
-      toast.success(`Blueprint ${isUpdating ? 'updated' : 'created'} successfully!`);
+      toast.success(`Blueprint ${isUpdating ? 'updated' : 'created'} successfully!`, {
+        id: "create-blueprint"
+      });
       
       // Close the modal and redirect to the blueprint page
       if (externalOnOpenChange) {
         externalOnOpenChange(false);
-      } else {
-        setInternalIsOpen(false);
       }
       
-      // Navigate to the blueprint page
-      window.location.href = `/blueprints/${data.id || createdBlueprintId}`;
+      // Redirect to the blueprint page after a short delay
+      setTimeout(() => {
+        if (data && data.id) {
+          window.location.href = `/blueprints/${data.id}`;
+        }
+      }, 500);
     } catch (error) {
-      console.error(`Error ${createdBlueprintId ? 'updating' : 'creating'} blueprint:`, error);
-      toast.error(`Failed to ${createdBlueprintId ? 'update' : 'create'} blueprint`);
+      console.error('Error creating blueprint:', error);
+      toast.error(`Failed to create blueprint: ${error instanceof Error ? error.message : 'Unknown error'}`, {
+        id: "create-blueprint"
+      });
     } finally {
       setIsLoading(false);
     }
@@ -1262,10 +1148,11 @@ export function CreateBlueprintModal({
       return;
     }
     
-    setDebugResults(`Checking blueprint status for ID: ${tempBlueprintId}`);
+    setDebugResults(`Loading blueprint details for ID: ${tempBlueprintId}...`);
     
     // Use GET instead of HEAD to get full blueprint details
     try {
+      // Fetch complete blueprint data from the API
       const verifyResponse = await fetch(`/api/blueprints/${tempBlueprintId}`, {
         method: 'GET',
       });
@@ -1285,13 +1172,44 @@ export function CreateBlueprintModal({
         console.error("Failed to parse response:", parseError);
       }
       
+      // Check database directly
+      let dbDetails = null;
+      try {
+        const dbResponse = await fetch(`/api/admin/debug/blueprint?id=${tempBlueprintId}`, {
+          method: 'GET',
+        });
+        
+        if (dbResponse.ok) {
+          dbDetails = await dbResponse.json();
+        } else {
+          dbDetails = { 
+            error: `Failed to fetch raw DB data: ${dbResponse.status}`, 
+            note: "This is expected if you're not in development mode or don't have admin access" 
+          };
+        }
+      } catch (dbError) {
+        console.error("Error fetching raw DB data:", dbError);
+        dbDetails = { error: "Error fetching raw DB data", message: dbError instanceof Error ? dbError.message : String(dbError) };
+      }
+      
       // Gather debug information
       const debugInfo = {
         tempBlueprintId,
         responseStatus: verifyResponse.status,
         responseStatusText: verifyResponse.statusText,
         responseHeaders: Object.fromEntries([...verifyResponse.headers.entries()]),
-        responseData,
+        blueprint: responseData,
+        raw_db_data: dbDetails,
+        important_fields: responseData ? {
+          search_query: responseData.search_query || "NOT SET",
+          search_query_type: responseData.search_query ? typeof responseData.search_query : "undefined/null",
+          search_query_length: responseData.search_query ? responseData.search_query.length : 0,
+          prompt: responseData.prompt ? responseData.prompt.substring(0, 50) + "..." : "NOT SET",
+          is_temporary: responseData.is_temporary,
+          visibility: responseData.visibility,
+          created_at: responseData.created_at,
+          updated_at: responseData.updated_at
+        } : null,
         timestamp: new Date().toISOString()
       };
       
@@ -1300,9 +1218,16 @@ export function CreateBlueprintModal({
       
       if (verifyResponse.ok) {
         console.log("Blueprint verification successful:", debugInfo);
-        toast.success("Blueprint exists", {
-          description: `Blueprint with ID ${tempBlueprintId} was found.`
-        });
+        
+        if (responseData?.search_query) {
+          toast.info("Blueprint search_query is SET", {
+            description: `Length: ${responseData.search_query.length} chars`
+          });
+        } else {
+          toast.info("Blueprint search_query is NOT SET", {
+            description: "This is expected during blueprint creation, before finalization"
+          });
+        }
       } else {
         console.warn("Blueprint verification failed:", debugInfo);
         
@@ -1418,6 +1343,307 @@ export function CreateBlueprintModal({
       setDebugResults(`Create Error: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }
+  };
+
+  const handleInitialPrompt = async () => {
+    if (!prompt || prompt.trim() === '') {
+      toast.error("Please enter a prompt for your blueprint");
+      return;
+    }
+    
+    setIsLoading(true);
+    
+    try {
+      // Step 1: Create a temporary blueprint first
+      if (!tempBlueprintId) {
+        console.log("No temporary blueprint ID found, creating one now");
+        
+        // First check if we already have a similar blueprint in progress
+        try {
+          // Get most recently created blueprints to see if we have a matching one
+          const checkResponse = await fetch('/api/blueprints/recent?limit=5');
+          
+          if (checkResponse.ok) {
+            const recentBlueprints = await checkResponse.json();
+            console.log("Recent blueprints:", recentBlueprints);
+            
+            // Look for a matching blueprint with this prompt
+            const matchingBlueprint = recentBlueprints.find((bp: { prompt?: string; is_temporary?: boolean; id: string }) => 
+              bp.prompt && bp.prompt.trim() === prompt.trim() && bp.is_temporary
+            );
+            
+            if (matchingBlueprint) {
+              console.log(`Found existing blueprint with matching prompt: ${matchingBlueprint.id}`);
+              setTempBlueprintId(matchingBlueprint.id);
+              await fetchQuestions(prompt, matchingBlueprint.id);
+              setCurrentStep('conversation');
+              return;
+            }
+          }
+        } catch (checkError) {
+          console.error("Error checking for existing blueprints:", checkError);
+          // Continue with creating a new blueprint
+        }
+        
+        // Create a new blueprint with improved error handling
+        let creationAttempts = 0;
+        const maxCreationAttempts = 3;
+        let blueprintData = null;
+        
+        while (creationAttempts < maxCreationAttempts && !blueprintData) {
+          creationAttempts++;
+          console.log(`Blueprint creation attempt ${creationAttempts}`);
+          
+          try {
+            const blueprintResponse = await fetch('/api/blueprints', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                title: prompt.split('\n')[0].slice(0, 50) || 'Draft Blueprint',
+                prompt: prompt, // Include the prompt but not as search_query
+                visibility: 'private',
+                is_temporary: true // Flag this as a temporary blueprint
+              }),
+            });
+            
+            if (!blueprintResponse.ok) {
+              const errorData = await blueprintResponse.json().catch(() => null);
+              console.error(`Blueprint creation failed with status: ${blueprintResponse.status}`, errorData);
+              
+              // If we're on the last attempt, throw to be caught by outer try/catch
+              if (creationAttempts === maxCreationAttempts) {
+                throw new Error(`Failed to create temporary blueprint: ${blueprintResponse.status}`);
+              }
+              
+              // Add a delay before retrying
+              await new Promise(resolve => setTimeout(resolve, 1000 * creationAttempts));
+              continue;
+            }
+            
+            blueprintData = await blueprintResponse.json();
+            
+            if (!blueprintData || !blueprintData.id) {
+              console.error("Blueprint creation response did not include an ID:", blueprintData);
+              throw new Error("Invalid response from blueprint creation API");
+            }
+            
+            console.log('Created temporary blueprint with ID:', blueprintData.id);
+            setTempBlueprintId(blueprintData.id);
+            break;
+          } catch (creationError) {
+            console.error(`Error during creation attempt ${creationAttempts}:`, creationError);
+            
+            // If we're on the last attempt, throw to be caught by outer try/catch
+            if (creationAttempts === maxCreationAttempts) {
+              throw creationError;
+            }
+            
+            // Add a delay before retrying
+            await new Promise(resolve => setTimeout(resolve, 1000 * creationAttempts));
+          }
+        }
+        
+        // Verification process with exponential backoff
+        if (blueprintData && blueprintData.id) {
+          let verificationAttempts = 0;
+          const maxVerificationAttempts = 5;
+          let isVerified = false;
+          
+          while (verificationAttempts < maxVerificationAttempts && !isVerified) {
+            verificationAttempts++;
+            console.log(`Blueprint verification attempt ${verificationAttempts} for ID: ${blueprintData.id}`);
+            
+            try {
+              // Add exponential backoff delay - wait longer with each attempt
+              const backoffTime = Math.min(1000 * Math.pow(2, verificationAttempts - 1), 8000);
+              console.log(`Waiting ${backoffTime}ms before verification attempt ${verificationAttempts}`);
+              await new Promise(resolve => setTimeout(resolve, backoffTime));
+              
+              // Use the new exists endpoint instead of HEAD request
+              const verifyResponse = await fetch(`/api/blueprints/${blueprintData.id}/exists`);
+              
+              if (verifyResponse.ok) {
+                const verifyData = await verifyResponse.json();
+                
+                if (verifyData.exists) {
+                  console.log(`Blueprint ${blueprintData.id} verified successfully on attempt ${verificationAttempts}`);
+                  isVerified = true;
+                  break;
+                } else {
+                  console.warn(`Blueprint exists check failed on attempt ${verificationAttempts}:`, verifyData);
+                }
+              } else {
+                console.warn(`Verification attempt ${verificationAttempts} failed with status:`, verifyResponse.status);
+              }
+            } catch (verifyError) {
+              console.error(`Error during verification attempt ${verificationAttempts}:`, verifyError);
+            }
+          }
+          
+          if (!isVerified) {
+            console.error(`Failed to verify blueprint ${blueprintData.id} after ${maxVerificationAttempts} attempts`);
+            toast.warning("Blueprint created but verification failed", {
+              description: "Continuing with questions generation. If you encounter errors, please try again."
+            });
+            
+            // Continue anyway - the blueprint was created successfully on the server
+            // This error happens when the client can't verify it but the blueprint exists
+            console.log("Proceeding despite verification failure - the blueprint was created successfully");
+          }
+        }
+        
+        // Step 2: Now fetch questions using the temporary blueprint ID
+        try {
+          await fetchQuestions(prompt, blueprintData.id);
+        } catch (questionsError) {
+          console.error("Error fetching questions:", questionsError);
+          
+          // If question fetching fails, check if it's due to blueprint not being found
+          if (questionsError instanceof Error && questionsError.message?.includes('404')) {
+            toast.error("Blueprint not found when fetching questions", {
+              description: "Generating fallback questions instead - please continue to answer them."
+            });
+            // Generate fallback questions without a blueprint ID
+            const fallbackQuestions = [
+              {
+                id: 1001,
+                title: "Implementation goals",
+                content: "What are the primary objectives or outcomes you want to achieve with this AI tool?"
+              },
+              {
+                id: 1002,
+                title: "Data sources",
+                content: "What specific data sources or APIs would you like this tool to use?"
+              },
+              {
+                id: 1003,
+                title: "Output format",
+                content: "How would you like the results presented? As a dashboard, PDF report, email summary, or in another format?"
+              },
+              {
+                id: 1004,
+                title: "Integration needs",
+                content: "What existing systems or workflows would this AI need to integrate with?"
+              }
+            ];
+            
+            // Initialize question status map
+            const initialStatus = fallbackQuestions.reduce((acc: QuestionStatusMap, q: { id: number; title: string; content: string }) => {
+              acc[q.id] = "pending";
+              return acc;
+            }, {});
+            
+            setQuestions(fallbackQuestions);
+            setQuestionStatus(initialStatus);
+            setActiveQuestionIndex(0);
+          } else {
+            toast.error("Failed to generate questions", {
+              description: "Please try again or refresh the page"
+            });
+          }
+        }
+        
+        // Move to conversation step
+        setCurrentStep('conversation');
+      } else {
+        console.log('Using existing temporary blueprint ID:', tempBlueprintId);
+        // If we already have a temporary blueprint ID, just fetch questions
+        await fetchQuestions(prompt, tempBlueprintId);
+      }
+      
+      // Move to conversation step
+      setCurrentStep('conversation');
+    } catch (error) {
+      console.error('Error in initial prompt handling:', error);
+      toast.error("Failed to process your request", {
+        description: error instanceof Error ? error.message : "Please try again later"
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handle submission of the current question and optionally move to the next one
+  const handleQuestionSubmit = async (moveToNext: boolean = true) => {
+    if (!currentResponse.trim()) {
+      toast.warning("Please provide a response before continuing");
+      return false;
+    }
+    
+    const currentQuestion = questions[activeQuestionIndex];
+    if (!currentQuestion) {
+      console.error("No active question found");
+      return false;
+    }
+    
+    // Save to local state
+    const updatedResponses = {
+      ...responses,
+      [currentQuestion.id]: currentResponse
+    };
+    
+    setResponses(updatedResponses);
+    
+    // Mark as complete
+    setQuestionStatus(prev => ({
+      ...prev,
+      [currentQuestion.id]: "complete"
+    }));
+    
+    // Use a state variable to track saving status
+    let savedSuccessfully = false;
+    
+    // Save response to database if we have a blueprint_id
+    if (tempBlueprintId) {
+      try {
+        // Show unobtrusive loading indicator
+        toast.loading("Saving your response...", { id: "saving-response" });
+        
+        await saveResponseToDatabase(tempBlueprintId, currentQuestion.id.toString(), currentResponse);
+        
+        console.log(`Response saved for question ${currentQuestion.id}`);
+        toast.success("Response saved", { id: "saving-response" });
+        savedSuccessfully = true;
+      } catch (error) {
+        console.error('Error saving response:', error);
+        
+        // More specific error message
+        toast.error("Couldn't save your response", { 
+          id: "saving-response",
+          description: error instanceof Error 
+            ? error.message 
+            : "Your response was saved locally but couldn't be synced to the server."
+        });
+        
+        // Despite error, we still want to continue
+        savedSuccessfully = false;
+      }
+    } else {
+      console.warn('No temporary blueprint ID available, response not saved to database');
+      toast.warning("Response saved locally only", {
+        description: "Your response couldn't be saved to the server because no blueprint ID is available."
+      });
+    }
+    
+    // Optionally move to the next question
+    if (moveToNext && activeQuestionIndex < questions.length - 1) {
+      // Clear the response field for the next question
+      setCurrentResponse("");
+      
+      // Set the new active question
+      const nextIndex = activeQuestionIndex + 1;
+      setActiveQuestionIndex(nextIndex);
+      
+      // If this question has a saved response, populate the text field
+      const nextQuestion = questions[nextIndex];
+      if (nextQuestion && responses[nextQuestion.id]) {
+        setCurrentResponse(responses[nextQuestion.id]);
+      }
+    }
+    
+    return savedSuccessfully;
   };
 
   return (
