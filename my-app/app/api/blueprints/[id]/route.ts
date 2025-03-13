@@ -53,7 +53,26 @@ export async function GET(
     const supabase = createStandardServerClient();
     console.log(`Querying Supabase for blueprint with ID: ${id}`);
     
-    // Try to fetch with details directly - skip the exists check
+    // First check if this is a temporary blueprint - it might have been deleted
+    const { data: tempCheck, error: tempCheckError } = await supabase
+      .from('blueprints')
+      .select('id, is_temporary')
+      .eq('id', id)
+      .maybeSingle();
+      
+    if (tempCheckError) {
+      console.error(`Error checking blueprint ${id}:`, tempCheckError);
+    } else if (!tempCheck) {
+      console.log(`Blueprint with ID ${id} not found in database`);
+      return NextResponse.json(
+        { error: 'Blueprint not found', details: 'No blueprint with this ID exists in the database' },
+        { status: 404 }
+      );
+    } else if (tempCheck.is_temporary) {
+      console.log(`Blueprint ${id} is marked as temporary`);
+    }
+    
+    // Try to fetch with details directly
     const { data: blueprint, error } = await supabase
       .from('blueprints')
       .select(`
@@ -84,6 +103,14 @@ export async function GET(
       return NextResponse.json(
         { error: 'Error fetching blueprint', details: error.message, code: error.code },
         { status: 500 }
+      );
+    }
+    
+    if (!blueprint) {
+      console.log(`Blueprint with ID ${id} not found in query result`);
+      return NextResponse.json(
+        { error: 'Blueprint not found', details: 'No blueprint with this ID exists in the database' },
+        { status: 404 }
       );
     }
     
@@ -372,10 +399,10 @@ export async function HEAD(
     // Get the blueprint from Supabase - simple approach
     const supabase = createStandardServerClient();
     
-    // Just check if the blueprint exists with the minimal query
+    // Check if the blueprint exists - also get is_temporary field to log it
     const { data, error } = await supabase
       .from('blueprints')
-      .select('id')
+      .select('id, is_temporary')
       .eq('id', id)
       .maybeSingle(); // Use maybeSingle to avoid errors for non-existent IDs
     
@@ -389,7 +416,13 @@ export async function HEAD(
       return new Response(null, { status: 404 });
     }
     
-    console.log(`Blueprint with ID ${id} exists (HEAD request)`);
+    // If the blueprint is temporary, log it
+    if (data.is_temporary) {
+      console.log(`Blueprint with ID ${id} exists and is temporary (HEAD request)`);
+    } else {
+      console.log(`Blueprint with ID ${id} exists (HEAD request)`);
+    }
+    
     return new Response(null, { status: 200 });
   } catch (error) {
     console.error('Error in HEAD request for blueprint:', error);

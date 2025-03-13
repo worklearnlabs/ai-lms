@@ -70,6 +70,13 @@ export function CreateBlueprintModal({
   const [currentStep, setCurrentStep] = useState<'prompt' | 'conversation' | 'review'>('prompt')
   const [currentResponse, setCurrentResponse] = useState("")
   
+  // Use external state if provided, otherwise use internal state
+  const isControlled = externalIsOpen !== undefined && externalOnOpenChange !== undefined
+  const isOpen = isControlled ? externalIsOpen : internalIsOpen
+  const setIsOpen = isControlled 
+    ? externalOnOpenChange 
+    : setInternalIsOpen
+    
   // Question status type
   type QuestionStatusMap = {
     [key: number]: "pending" | "complete";
@@ -95,12 +102,12 @@ export function CreateBlueprintModal({
     title: string;
     search_query: string;
     complexity?: 'beginner' | 'intermediate' | 'advanced';
-    estimatedTime?: string;
+    estimated_time?: string;
     prerequisites?: string[];
   } | null>(null);
   
-  // Example blueprints with difficulty levels
-  const examples = [
+  // Example blueprints with difficulty levels - now we'll fetch these dynamically
+  const [examples, setExamples] = useState([
     {
       title: "LinkedIn Content Analyzer",
       content: "I want an AI that monitors LinkedIn for posts about artificial intelligence, machine learning, and venture capital funding. It should collect posts from the last 24 hours, analyze key themes, extract metrics (like engagement rates), and generate a daily summary report highlighting emerging trends and noteworthy discussions.",
@@ -116,8 +123,60 @@ export function CreateBlueprintModal({
       content: "Create an AI that collects financial news from major publications, tracks stock performance for a specific industry segment, identifies correlations between news events and market movements, and produces comprehensive weekly reports with visualizations of key trends and actionable insights.",
       difficulty: "Hard"
     }
-  ]
+  ]);
   
+  // Tracks whether examples are being loaded
+  const [loadingExamples, setLoadingExamples] = useState(false);
+  const [examplesError, setExamplesError] = useState<string | null>(null);
+  
+  // Fetch dynamic examples when the modal is opened
+  useEffect(() => {
+    if (isOpen) {
+      fetchDynamicExamples();
+    }
+  }, [isOpen]);
+  
+  // Function to fetch dynamic examples from our API
+  const fetchDynamicExamples = async () => {
+    try {
+      setLoadingExamples(true);
+      setExamplesError(null);
+      
+      console.log('Fetching dynamic examples...');
+      const response = await fetch('/api/blueprints/examples');
+      console.log('Examples API Response Status:', response.status);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Error fetching examples:', errorText);
+        throw new Error(`Failed to fetch examples: ${response.status} ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      console.log('Examples API Response Data:', data);
+      console.log(`Source of examples: ${data.source || 'unknown'}`);
+      
+      if (data.examples && Array.isArray(data.examples)) {
+        console.log('Received dynamic examples:', data.examples);
+        setExamples(data.examples);
+      } else {
+        console.error('Invalid examples data format:', data);
+        throw new Error('Invalid examples data format');
+      }
+    } catch (error) {
+      console.error('Error loading examples:', error);
+      setExamplesError('Failed to load examples. Please try again.');
+      // Keep any previous examples loaded if available
+    } finally {
+      setLoadingExamples(false);
+    }
+  };
+  
+  // Regenerate examples on demand
+  const handleRegenerateExamples = async () => {
+    await fetchDynamicExamples();
+  };
+
   // Difficulty color mapping
   const difficultyColors = {
     Easy: "text-green-500 bg-green-50 dark:bg-green-950/30",
@@ -125,13 +184,6 @@ export function CreateBlueprintModal({
     Hard: "text-red-500 bg-red-50 dark:bg-red-950/30",
   }
   
-  // Use external state if provided, otherwise use internal state
-  const isControlled = externalIsOpen !== undefined && externalOnOpenChange !== undefined
-  const isOpen = isControlled ? externalIsOpen : internalIsOpen
-  const setIsOpen = isControlled 
-    ? externalOnOpenChange 
-    : setInternalIsOpen
-    
   // Reset state when modal is closed
   useEffect(() => {
     if (!isOpen) {
@@ -175,6 +227,17 @@ export function CreateBlueprintModal({
               description: description
             });
           };
+          
+          // First validate the UUID format
+          const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+          if (!uuidRegex.test(temporaryBlueprintId)) {
+            console.error(`Invalid UUID format for blueprint ID: ${temporaryBlueprintId}`);
+            startFreshBlueprint(
+              "Your previous draft couldn't be loaded",
+              "Invalid blueprint ID format - starting a new blueprint creation process"
+            );
+            return;
+          }
           
           // Define the blueprint data interface
           interface BlueprintData {
@@ -222,7 +285,7 @@ export function CreateBlueprintModal({
                 title: data.title || "",
                 search_query: data.search_query,
                 complexity: data.complexity,
-                estimatedTime: data.estimated_time,
+                estimated_time: data.estimated_time,
                 prerequisites: data.prerequisites
               });
               
@@ -256,23 +319,52 @@ export function CreateBlueprintModal({
             setCreatedBlueprintId(temporaryBlueprintId);
           };
           
-          // Try using the blueprintApi utility directly without any pre-verification
+          // First, check if the blueprint exists using a HEAD request
+          try {
+            console.log("Checking if blueprint exists:", temporaryBlueprintId);
+            const checkResponse = await fetch(`/api/blueprints/${temporaryBlueprintId}`, {
+              method: 'HEAD'
+            });
+            
+            // If the blueprint doesn't exist, start fresh immediately
+            if (checkResponse.status === 404) {
+              console.log("Blueprint not found (404) - starting fresh");
+              startFreshBlueprint(
+                "Your previous draft couldn't be found",
+                "Starting a new blueprint creation process"
+              );
+              return;
+            }
+          } catch (checkError) {
+            console.error("Error checking if blueprint exists:", checkError);
+            // Continue to try loading anyway
+          }
+          
+          // Try using the blueprintApi utility directly
           try {
             console.log("Attempting to load blueprint with blueprintApi:", temporaryBlueprintId);
             const { data, error } = await blueprintApi.getBlueprintById(temporaryBlueprintId);
             
             if (error) {
-              console.error("Error using blueprintApi:", error);
-              throw new Error("Failed to load with blueprintApi");
-            }
-            
-            if (data) {
+              // Log the stringified error object to see all of its properties
+              console.error("Error using blueprintApi:", 
+                typeof error === 'object' ? JSON.stringify(error) : error);
+              
+              // Check if error is empty and provide more specific message
+              if (error && Object.keys(error).length === 0) {
+                console.error("Empty error object from Supabase - likely a permissions issue");
+              }
+              
+              // Don't throw, just log and continue to fallback
+            } else if (data) {
               console.log("Successfully loaded blueprint with blueprintApi:", data);
               processLoadedBlueprint(data);
               return;
+            } else {
+              console.warn("No data or error from blueprintApi - continuing to fallback");
             }
           } catch (apiError) {
-            console.error("Error with blueprintApi approach:", apiError);
+            console.error("Exception with blueprintApi approach:", apiError);
             // Continue to fallback approach
           }
           
@@ -283,7 +375,9 @@ export function CreateBlueprintModal({
             const response = await fetch(`/api/blueprints/${temporaryBlueprintId}`);
             
             if (!response.ok) {
+              const errorText = await response.text();
               console.error(`API response error: ${response.status} ${response.statusText}`);
+              console.error(`API error details: ${errorText}`);
               
               // Blueprint couldn't be found/accessed, start a fresh blueprint process
               startFreshBlueprint(
@@ -510,45 +604,93 @@ export function CreateBlueprintModal({
     }
   };
   
+  // Handle submission of the current question and optionally move to the next one
+  const handleQuestionSubmit = async (moveToNext: boolean = true) => {
+    if (!currentResponse.trim()) {
+      toast.warning("Please provide a response before continuing");
+      return false;
+    }
+    
+    const currentQuestion = questions[activeQuestionIndex];
+    if (!currentQuestion) {
+      console.error("No active question found");
+      return false;
+    }
+    
+    // Save to local state
+    const updatedResponses = {
+      ...responses,
+      [currentQuestion.id]: currentResponse
+    };
+    
+    setResponses(updatedResponses);
+    
+    // Mark as complete
+    setQuestionStatus(prev => ({
+      ...prev,
+      [currentQuestion.id]: "complete"
+    }));
+    
+    // Use a state variable to track saving status
+    let savedSuccessfully = false;
+    
+    // Save response to database if we have a blueprint_id
+    if (tempBlueprintId) {
+      try {
+        // Show unobtrusive loading indicator
+        toast.loading("Saving your response...", { id: "saving-response" });
+        
+        await saveResponseToDatabase(tempBlueprintId, currentQuestion.id.toString(), currentResponse);
+        
+        console.log(`Response saved for question ${currentQuestion.id}`);
+        toast.success("Response saved", { id: "saving-response" });
+        savedSuccessfully = true;
+      } catch (error) {
+        console.error('Error saving response:', error);
+        
+        // More specific error message
+        toast.error("Couldn't save your response", { 
+          id: "saving-response",
+          description: error instanceof Error 
+            ? error.message 
+            : "Your response was saved locally but couldn't be synced to the server."
+        });
+        
+        // Despite error, we still want to continue
+        savedSuccessfully = false;
+      }
+    } else {
+      console.warn('No temporary blueprint ID available, response not saved to database');
+      toast.warning("Response saved locally only", {
+        description: "Your response couldn't be saved to the server because no blueprint ID is available."
+      });
+    }
+    
+    // Optionally move to the next question
+    if (moveToNext && activeQuestionIndex < questions.length - 1) {
+      // Clear the response field for the next question
+      setCurrentResponse("");
+      
+      // Set the new active question
+      const nextIndex = activeQuestionIndex + 1;
+      setActiveQuestionIndex(nextIndex);
+      
+      // If this question has a saved response, populate the text field
+      const nextQuestion = questions[nextIndex];
+      if (nextQuestion && responses[nextQuestion.id]) {
+        setCurrentResponse(responses[nextQuestion.id]);
+      }
+    }
+    
+    return savedSuccessfully;
+  };
+  
   // Handle question click to change active question
   const handleQuestionClick = async (index: number) => {
     // If there's a current response, save it before switching
     if (currentResponse.trim()) {
-      const currentQuestion = questions[activeQuestionIndex];
-      
-      if (currentQuestion) {
-        const updatedResponses = {
-          ...responses,
-          [currentQuestion.id]: currentResponse
-        };
-        
-        setResponses(updatedResponses);
-        
-        // Mark as complete
-        setQuestionStatus(prev => ({
-          ...prev,
-          [currentQuestion.id]: "complete"
-        }));
-        
-        // Save response to database if we have a blueprint_id
-        if (tempBlueprintId) {
-          try {
-            await saveResponseToDatabase(tempBlueprintId, currentQuestion.id.toString(), currentResponse);
-            console.log(`Response saved for question ${currentQuestion.id}`);
-          } catch (error) {
-            console.error('Error saving response:', error);
-            // Continue despite error - we've already updated the UI state
-            toast.error("Couldn't save your response", { 
-              description: "Your response was saved locally but not synced to the server."
-            });
-          }
-        } else {
-          console.warn('No temporary blueprint ID available, response not saved to database');
-        }
-      }
-      
-      // Clear the response field for the next question
-      setCurrentResponse("");
+      // Use our new function to handle submission
+      await handleQuestionSubmit(false);
     }
     
     // Set the new active question
@@ -558,6 +700,8 @@ export function CreateBlueprintModal({
     const nextQuestion = questions[index];
     if (nextQuestion && responses[nextQuestion.id]) {
       setCurrentResponse(responses[nextQuestion.id]);
+    } else {
+      setCurrentResponse("");
     }
   };
   
@@ -571,7 +715,7 @@ export function CreateBlueprintModal({
     while (attemptCount < maxRetries) {
       try {
         attemptCount++;
-        console.log(`Attempt ${attemptCount} to save response for question ${questionId}`);
+        console.log(`Attempt ${attemptCount} to save response for question ${questionId} to blueprint ${blueprintId}`);
         
         // First check if questions record exists
         if (attemptCount === 1) {
@@ -607,30 +751,56 @@ export function CreateBlueprintModal({
           }),
         });
         
+        // Parse the response data even in error cases for better error reporting
+        const responseData = await saveResponse.json().catch(err => ({ 
+          error: 'Failed to parse response', 
+          details: err.message 
+        }));
+        
         if (!saveResponse.ok) {
-          const errorText = await saveResponse.text();
-          console.error(`Attempt ${attemptCount} failed to save response:`, errorText);
+          const statusCode = saveResponse.status;
+          console.error(`Attempt ${attemptCount} failed to save response:`, 
+            statusCode, responseData);
           
-          // If it's a 404 error, we need to handle it specially
-          if (saveResponse.status === 404 && attemptCount === 1) {
+          // Handle specific error cases
+          if (statusCode === 401 || statusCode === 403) {
+            // Authentication or authorization error
+            console.error('Authentication/authorization error saving response');
+            toast.error("Access error. Please try logging in again.");
+            throw new Error(`Access error: ${responseData.error || 'Unknown error'}`);
+          } 
+          
+          if (statusCode === 404) {
             // The endpoint now has logic to create a placeholder record if needed
             console.warn('404 error, retrying as endpoint should now create placeholder');
-            lastError = new Error(errorText);
+            lastError = new Error(responseData.error || 'Resource not found');
             // Small delay before retrying
             await new Promise(resolve => setTimeout(resolve, 500));
             continue;
           }
           
-          throw new Error(`Failed to save response: ${saveResponse.status} ${errorText}`);
+          // General error handler
+          lastError = new Error(`Failed to save response: ${statusCode} ${responseData.error || 'Unknown error'}`);
+          
+          // For 5xx errors, retry after a longer delay
+          if (statusCode >= 500) {
+            await new Promise(resolve => setTimeout(resolve, 1000 * attemptCount));
+            continue;
+          }
+          
+          // For other errors, throw immediately
+          throw lastError;
         }
         
-        console.log('Response saved successfully');
+        console.log('Response saved successfully', responseData);
+        
+        // Successfully saved, no need to continue retrying
         return;
       } catch (error) {
         console.error(`Attempt ${attemptCount} error:`, error);
         lastError = error;
         
-        // Add a small delay before retrying
+        // Add a small delay before retrying, increasing with each attempt
         if (attemptCount < maxRetries) {
           await new Promise(resolve => setTimeout(resolve, 500 * attemptCount));
         }
@@ -638,6 +808,8 @@ export function CreateBlueprintModal({
     }
     
     // If we get here, all retry attempts failed
+    console.error(`Failed to save response after ${maxRetries} attempts`);
+    toast.error("Failed to save your response. Please try again.");
     throw lastError || new Error('Failed to save response after multiple attempts');
   };
   
@@ -670,7 +842,7 @@ export function CreateBlueprintModal({
         prompt,
         content,
         complexity: finalData.complexity,
-        estimated_time: finalData.estimatedTime,
+        estimated_time: finalData.estimated_time,
         is_temporary: false, // Important: Set is_temporary to false to mark it as permanent
       };
       
@@ -717,16 +889,117 @@ export function CreateBlueprintModal({
     }
   };
 
+  // Generate the final blueprint data based on all question responses
+  const generateFinalBlueprint = async () => {
+    if (!tempBlueprintId) {
+      throw new Error("No temporary blueprint ID available");
+    }
+    
+    setIsLoading(true);
+    
+    try {
+      console.log("Generating final blueprint data from responses");
+      
+      // Prepare data for the final blueprint generation
+      const generateData = {
+        blueprint_id: tempBlueprintId,
+        prompt,
+        responses: { ...responses } // Use all collected responses
+      };
+      
+      // Call the API to generate the final blueprint
+      const response = await fetch('/api/blueprints/reason/finalize', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(generateData),
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to generate final blueprint: ${response.status} ${errorText}`);
+      }
+      
+      // Parse and update the final data
+      const data = await response.json();
+      
+      // Update the final data state
+      setFinalData({
+        title: data.title || title,
+        search_query: data.search_query || prompt,
+        complexity: data.skill_level || 'beginner',
+        estimated_time: data.estimated_time || '1-2 hours',
+        prerequisites: data.prerequisites || []
+      });
+      
+      console.log("Final blueprint data generated:", data);
+      return data;
+    } catch (error) {
+      console.error("Error generating final blueprint:", error);
+      toast.error("Failed to generate final blueprint", {
+        description: error instanceof Error ? error.message : "Please try again"
+      });
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handle form submission based on current step
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    if (isLoading) return;
+    
     try {
-      if (currentStep === 'review' && finalData) {
-        await handleCreateBlueprint();
-      } else if (currentStep === 'conversation') {
-        await handleCreateBlueprint();
-      } else if (currentStep === 'prompt') {
+      if (currentStep === 'prompt') {
         await handleInitialPrompt();
+      } else if (currentStep === 'conversation') {
+        // First save the current response if there is one
+        if (currentResponse.trim()) {
+          // If saving failed, ask the user if they want to continue anyway
+          const saveSuccessful = await handleQuestionSubmit(false);
+          
+          if (!saveSuccessful) {
+            const shouldContinue = window.confirm(
+              "There was a problem saving your last response. Do you want to continue to the review step anyway?"
+            );
+            
+            if (!shouldContinue) {
+              return;
+            }
+          }
+        }
+        
+        // Check if we have responses for all questions
+        const allQuestionsAnswered = questions.every(q => questionStatus[q.id] === 'complete');
+        
+        if (!allQuestionsAnswered) {
+          const unansweredCount = questions.filter(q => questionStatus[q.id] !== 'complete').length;
+          
+          const shouldContinue = window.confirm(
+            `You haven't answered ${unansweredCount} question${unansweredCount > 1 ? 's' : ''}. Do you want to continue to the review step anyway?`
+          );
+          
+          if (!shouldContinue) {
+            return;
+          }
+        }
+        
+        setIsLoading(true);
+        
+        try {
+          // Generate the final blueprint data based on responses
+          await generateFinalBlueprint();
+          
+          // Move to review step
+          setCurrentStep('review');
+        } finally {
+          setIsLoading(false);
+        }
+      } else if (currentStep === 'review') {
+        await handleCreateBlueprint();
       }
     } catch (error) {
       console.error("Error in form submission:", error);
@@ -838,31 +1111,65 @@ export function CreateBlueprintModal({
                 
                 {/* Right column with examples */}
                 <div className="flex flex-col h-full">
-                  <h3 className="text-lg font-semibold mb-3">Examples</h3>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-lg font-semibold">Examples</h3>
+                    
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleRegenerateExamples}
+                      disabled={loadingExamples}
+                      className="text-xs"
+                    >
+                      {loadingExamples ? (
+                        <>
+                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                          Loading...
+                        </>
+                      ) : (
+                        <>Regenerate Examples</>
+                      )}
+                    </Button>
+                  </div>
+                  
+                  {examplesError && (
+                    <div className="rounded-md bg-destructive/15 px-3 py-2 text-sm text-destructive">
+                      <p>{examplesError}</p>
+                    </div>
+                  )}
                   
                   <ScrollContainer className="pr-4">
-                    {examples.map((example, index) => (
-                      <div 
-                        key={index} 
-                        className="bg-background rounded-lg p-5 shadow-sm border hover:border-primary/30 hover:shadow-md transition-all cursor-pointer group"
-                        onClick={() => handleExampleClick(example.content)}
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          <h4 className="font-semibold text-primary group-hover:text-primary/80 transition-colors">
-                            {example.title}
-                          </h4>
-                          <span className={cn(
-                            "text-xs px-2 py-0.5 rounded-full font-medium",
-                            difficultyColors[example.difficulty as keyof typeof difficultyColors]
-                          )}>
-                            {example.difficulty}
-                          </span>
+                    {loadingExamples ? (
+                      <div className="flex items-center justify-center h-40">
+                        <div className="flex flex-col items-center gap-3">
+                          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                          <p className="text-muted-foreground">Generating fresh examples...</p>
                         </div>
-                        <p className="text-sm text-muted-foreground group-hover:text-foreground/90 transition-colors">
-                          {example.content}
-                        </p>
                       </div>
-                    ))}
+                    ) : (
+                      examples.map((example, index) => (
+                        <div 
+                          key={index} 
+                          className="bg-background rounded-lg p-5 shadow-sm border hover:border-primary/30 hover:shadow-md transition-all cursor-pointer group"
+                          onClick={() => handleExampleClick(example.content)}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <h4 className="font-semibold text-primary group-hover:text-primary/80 transition-colors">
+                              {example.title}
+                            </h4>
+                            <span className={cn(
+                              "text-xs px-2 py-0.5 rounded-full font-medium",
+                              difficultyColors[example.difficulty as keyof typeof difficultyColors]
+                            )}>
+                              {example.difficulty}
+                            </span>
+                          </div>
+                          <p className="text-sm text-muted-foreground group-hover:text-foreground/90 transition-colors">
+                            {example.content}
+                          </p>
+                        </div>
+                      ))
+                    )}
                   </ScrollContainer>
                 </div>
               </div>
@@ -969,7 +1276,7 @@ export function CreateBlueprintModal({
                     <div>
                       <Label htmlFor="estimatedTime" className="text-base">Estimated Time</Label>
                       <div className="text-sm p-2 border rounded-md mt-1 bg-background">
-                        {finalData.estimatedTime || 'Not specified'}
+                        {finalData.estimated_time || 'Not specified'}
                       </div>
                     </div>
                     

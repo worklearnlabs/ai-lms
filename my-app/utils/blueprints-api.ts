@@ -131,6 +131,68 @@ export const blueprintApi = {
     try {
       console.log(`blueprintApi.getBlueprintById: Fetching blueprint with ID ${id}`);
       const supabase = createClientSupabase();
+      
+      // First, try to get the authenticated user to debug permission issues
+      const { data: authData } = await supabase.auth.getSession();
+      const isAuthenticated = !!authData.session?.user;
+      console.log(`blueprintApi.getBlueprintById: User authenticated: ${isAuthenticated}`);
+      
+      if (isAuthenticated) {
+        console.log(`blueprintApi.getBlueprintById: User ID: ${authData.session?.user.id}`);
+      }
+      
+      // Make a simpler query first to check if the blueprint exists at all
+      const checkResponse = await supabase
+        .from('blueprints')
+        .select('id, title, is_temporary, user_id')
+        .eq('id', id)
+        .maybeSingle();
+      
+      if (checkResponse.error) {
+        console.error(`blueprintApi.getBlueprintById: Error checking if blueprint ${id} exists:`, 
+          JSON.stringify(checkResponse.error));
+        
+        // Log specific error codes for debugging
+        if (checkResponse.error.code) {
+          console.error(`Error code: ${checkResponse.error.code}, Message: ${checkResponse.error.message}`);
+        }
+        
+        if (checkResponse.error.code === 'PGRST116' || checkResponse.error.code === 'PGRST104') {
+          console.error(`blueprintApi.getBlueprintById: Blueprint not found or inaccessible due to permissions: ${id}`);
+          return { 
+            data: null, 
+            error: { 
+              message: 'Blueprint not found or inaccessible', 
+              code: checkResponse.error.code 
+            } 
+          };
+        }
+        
+        return checkResponse;
+      }
+      
+      if (!checkResponse.data) {
+        console.error(`blueprintApi.getBlueprintById: Blueprint ${id} not found in database`);
+        return { 
+          data: null, 
+          error: { message: 'Blueprint not found', code: 'NOT_FOUND' } 
+        };
+      }
+      
+      console.log(`blueprintApi.getBlueprintById: Blueprint exists check passed for ${id}:`, checkResponse.data);
+      
+      // If this is a temporary blueprint, log that information
+      if (checkResponse.data.is_temporary) {
+        console.log(`blueprintApi.getBlueprintById: Blueprint ${id} is marked as temporary`);
+      }
+      
+      // If authenticated, check if this blueprint belongs to the current user
+      if (isAuthenticated && checkResponse.data.user_id) {
+        const isMine = checkResponse.data.user_id === authData.session?.user.id;
+        console.log(`blueprintApi.getBlueprintById: Blueprint belongs to current user: ${isMine}`);
+      }
+      
+      // Now fetch the full blueprint data
       const response = await supabase
         .from('blueprints')
         .select(`
@@ -141,15 +203,26 @@ export const blueprintApi = {
         .single();
 
       if (response.error) {
-        console.error(`blueprintApi.getBlueprintById: Error fetching blueprint ${id}:`, response.error);
-      } else if (response.data) {
-        console.log(`blueprintApi.getBlueprintById: Successfully retrieved blueprint ${id}`);
+        console.error(`blueprintApi.getBlueprintById: Error fetching full blueprint ${id}:`, 
+          JSON.stringify(response.error));
+        return response;
+      } 
+      
+      if (response.data) {
+        console.log(`blueprintApi.getBlueprintById: Successfully retrieved full blueprint data`);
+      } else {
+        console.warn(`blueprintApi.getBlueprintById: No data returned for blueprint ${id}`);
       }
 
       return response;
     } catch (error) {
       console.error(`blueprintApi.getBlueprintById: Exception when fetching blueprint ${id}:`, error);
-      return { data: null, error: error instanceof Error ? error : new Error('Unknown error') };
+      return { 
+        data: null, 
+        error: error instanceof Error 
+          ? { message: error.message, name: error.name } 
+          : { message: 'Unknown error' } 
+      };
     }
   },
 
