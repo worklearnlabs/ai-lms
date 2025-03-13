@@ -270,38 +270,7 @@ export async function POST(req: Request) {
 
       console.log('Temporary blueprint created successfully:', blueprint.id);
       
-      // Ensure the blueprint is committed - try to fetch it to confirm
-      let verificationAttempts = 0;
-      const maxAttempts = 3;
-      let verifiedBlueprint = null;
-
-      while (verificationAttempts < maxAttempts && !verifiedBlueprint) {
-        verificationAttempts++;
-        console.log(`Temporary blueprint verification attempt ${verificationAttempts} for ID: ${blueprint.id}`);
-        
-        // Add a delay before verification to allow database propagation
-        await new Promise(resolve => setTimeout(resolve, 300 * verificationAttempts));
-        
-        const { data: verifyData, error: verifyError } = await serviceClient
-          .from('blueprints')
-          .select('id, title, is_temporary')
-          .eq('id', blueprint.id)
-          .single();
-
-        if (!verifyError && verifyData) {
-          console.log(`Temporary blueprint ${blueprint.id} verified on attempt ${verificationAttempts}`);
-          verifiedBlueprint = verifyData;
-          break;
-        }
-        
-        console.warn(`Temporary blueprint verification attempt ${verificationAttempts} failed:`, verifyError);
-      }
-      
-      if (!verifiedBlueprint) {
-        console.warn(`Could not verify temporary blueprint ${blueprint.id}, but continuing as it may be a replication delay`);
-      }
-      
-      // Return the created blueprint regardless of verification
+      // Return the created blueprint without verification attempts
       return NextResponse.json(blueprint);
     }
     
@@ -345,42 +314,8 @@ export async function POST(req: Request) {
       );
     }
 
-    // Ensure the blueprint is committed to the database by verifying it exists
-    // This prevents race conditions where the blueprint is created but not yet visible
-    let verificationAttempts = 0;
-    const maxAttempts = 3;
-    let verifiedBlueprint = null;
-
-    while (verificationAttempts < maxAttempts) {
-      verificationAttempts++;
-      console.log(`Verification attempt ${verificationAttempts} for blueprint ${blueprint.id}`);
-      
-      // Add a delay before verification
-      await new Promise(resolve => setTimeout(resolve, 500 * verificationAttempts));
-      
-      const { data: verifyData, error: verifyError } = await supabase
-        .from('blueprints')
-        .select('*')
-        .eq('id', blueprint.id)
-        .single();
-
-      if (!verifyError && verifyData) {
-        console.log(`Blueprint ${blueprint.id} verified successfully on attempt ${verificationAttempts}`);
-        verifiedBlueprint = verifyData;
-        break;
-      }
-      
-      console.warn(`Verification attempt ${verificationAttempts} failed:`, verifyError);
-    }
-
-    if (!verifiedBlueprint) {
-      console.error(`Failed to verify blueprint ${blueprint.id} after ${maxAttempts} attempts`);
-      // Continue anyway and return the original blueprint data
-    }
-
-    console.log('Blueprint created successfully:', blueprint.id);
-
-    // Return the created blueprint
+    // Return the blueprint without verification
+    console.log(`Blueprint ${blueprint.id} created successfully`);
     return NextResponse.json(blueprint);
   } catch (error) {
     console.error('Unhandled error in POST /api/blueprints:', error);

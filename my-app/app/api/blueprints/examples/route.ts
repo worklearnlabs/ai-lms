@@ -13,84 +13,84 @@ interface BlueprintExample {
 const examplesByDifficulty: Record<string, BlueprintExample[]> = {
   Easy: [
     {
-      title: "Email Categorization Assistant",
-      content: "I want an AI that can automatically sort my incoming emails into predefined categories like 'Important', 'Work', 'Personal', and 'Newsletters' based on their content and sender information.",
+      title: "Voice Notes Transcriber",
+      content: "I want an AI that automatically transcribes my voice notes and organizes them into searchable text documents with tags based on content topics and mentioned dates or people.",
       difficulty: "Easy"
     },
     {
-      title: "Social Media Scheduler",
-      content: "I need an AI tool that can help me schedule and post content across multiple social media platforms. It should suggest optimal posting times based on audience engagement patterns.",
+      title: "Recipe Recommender",
+      content: "I need an AI tool that suggests recipes based on ingredients I already have in my kitchen, dietary preferences, and time constraints, with options to filter by cuisine type.",
       difficulty: "Easy"
     },
     {
-      title: "Meeting Notes Summarizer",
-      content: "I want an AI that can transcribe my team meetings and generate concise summaries highlighting key discussion points, decisions made, and action items assigned to team members.",
+      title: "Workout Plan Creator",
+      content: "I want an AI that generates personalized weekly workout routines based on my fitness goals, available equipment, and time constraints, with progress tracking and adaptive difficulty.",
       difficulty: "Easy"
     },
     {
-      title: "Daily News Digest",
-      content: "I need an AI that compiles news articles on topics I'm interested in and creates a personalized daily digest with summaries of the most relevant stories in my industry.",
+      title: "Book Recommendation Engine",
+      content: "I need an AI that analyzes my reading history and preferences to recommend new books I might enjoy, providing summaries and showing why each recommendation matches my taste.",
       difficulty: "Easy"
     },
     {
-      title: "Product Review Analyzer",
-      content: "I want an AI that can scrape product reviews from e-commerce websites, analyze sentiment, and provide insights about what customers like and dislike about similar products.",
+      title: "Travel Itinerary Builder",
+      content: "I want an AI that creates detailed travel itineraries based on destination, trip duration, budget, and interests, suggesting attractions, restaurants, and activities with optimal routes.",
       difficulty: "Easy"
     }
   ],
   
   Medium: [
     {
-      title: "Customer Support Chatbot",
-      content: "I need an AI-powered chatbot that can handle common customer support inquiries, provide product information, and escalate complex issues to human agents when necessary.",
+      title: "Language Learning Assistant",
+      content: "I need an AI that creates customized language learning exercises based on my proficiency level, learns from my common mistakes, and generates contextual practice scenarios for conversation skills.",
       difficulty: "Medium"
     },
     {
-      title: "Content Research Assistant",
-      content: "I need an AI that can research specific topics across multiple sources, extract key insights, identify conflicting information, and summarize findings with proper citations for my blog articles.",
+      title: "Document Compliance Checker",
+      content: "I need an AI that reviews legal contracts and documents to identify compliance issues with specific regulations, highlighting potential risks and suggesting corrective language.",
       difficulty: "Medium"
     },
     {
-      title: "Sales Call Analyzer",
-      content: "I want an AI system that can analyze recorded sales calls, identify successful techniques, highlight missed opportunities, and provide actionable feedback to improve our sales team's performance.",
+      title: "Marketing Copy Generator",
+      content: "I want an AI system that analyzes competitor marketing materials, identifies effective messaging patterns, and generates original copy for different platforms while maintaining brand voice.",
       difficulty: "Medium"
     },
     {
-      title: "Financial Document Processor",
-      content: "I need an AI that can extract relevant financial data from invoices, receipts, and statements, categorize expenses, and prepare reports for accounting purposes.",
+      title: "Podcast Content Summarizer",
+      content: "I need an AI that transcribes podcast episodes, extracts key insights and quotes, identifies main topics and themes, and generates comprehensive summaries with timestamp references.",
       difficulty: "Medium"
     },
     {
-      title: "Personalized Learning Path",
-      content: "I want an AI that creates customized learning paths for students based on their skill level, learning style, and goals, adapting content recommendations as they progress through the material.",
+      title: "Customer Feedback Analyzer",
+      content: "I want an AI that aggregates customer feedback from multiple channels, categorizes issues, identifies sentiment trends over time, and generates actionable insights for product improvements.",
       difficulty: "Medium"
     }
   ],
   
   Hard: [
     {
-      title: "Market Trend Predictor",
-      content: "I'm looking for an AI system that can analyze financial news, social media sentiment, and market data to predict potential stock market trends and provide investment recommendations.",
+      title: "Scientific Research Assistant",
+      content: "I'm looking for an AI system that can analyze scientific papers in a specific field, identify research gaps, suggest potential experiment designs, and evaluate the statistical validity of published findings.",
       difficulty: "Hard"
     },
     {
-      title: "Multilingual Content Translator",
-      content: "I need an AI that not only translates my marketing content into multiple languages but also adapts the messaging to be culturally appropriate for each target market.",
+      title: "Adaptive Educational Content Creator",
+      content: "I need an AI that generates personalized educational content that adapts in real-time based on learner performance, adjusts difficulty progressively, and creates tailored assessments to reinforce concepts.",
       difficulty: "Hard"
     },
     {
-      title: "Medical Diagnosis Assistant",
-      content: "I want an AI system that can analyze patient symptoms, medical history, and test results to suggest possible diagnoses and treatment options for healthcare professionals to consider.",
+      title: "Predictive Maintenance System",
+      content: "I want an AI system that analyzes IoT sensor data from industrial equipment, predicts potential failures before they occur, recommends maintenance schedules, and optimizes part replacement timing.",
       difficulty: "Hard"
     },
     {
-      title: "Supply Chain Optimizer",
-      content: "I need an AI that monitors our global supply chain, predicts potential disruptions, simulates alternative scenarios, and recommends optimal inventory levels and shipping routes.",
+      title: "Fraud Detection Analyzer",
+      content: "I need an AI that monitors financial transactions in real-time, identifies suspicious patterns using historical data, adapts to new fraud techniques, and minimizes false positives.",
       difficulty: "Hard"
     },
     {
-      title: "Personalized Video Generator",
-      content: "I'm looking for an AI system that can create customized video content for different audience segments, incorporating relevant data, personalized messaging, and appropriate visual elements.",
+      title: "Autonomous Project Manager",
+      content: "I'm looking for an AI system that can manage software development projects, assign tasks based on team members' skills and availability, predict bottlenecks, and suggest resource reallocations.",
       difficulty: "Hard"
     }
   ]
@@ -130,18 +130,18 @@ export async function GET() {
     return NextResponse.json({
       examples: [
         {
-          title: "LinkedIn Content Analyzer",
-          content: "I want an AI that monitors LinkedIn for posts about artificial intelligence, machine learning, and venture capital funding. It should collect posts from the last 24 hours, analyze key themes, extract metrics (like engagement rates), and generate a daily summary report highlighting emerging trends and noteworthy discussions.",
+          title: "Website Analytics Summarizer",
+          content: "I want an AI that processes my website analytics data daily, identifies traffic patterns, highlights conversion changes, and sends an executive summary with visualizations and recommendations for improving user engagement.",
           difficulty: "Easy"
         },
         {
-          title: "Content Research Assistant",
-          content: "I need an AI that can research a specific topic across multiple sources (web articles, academic papers, and social posts), extract key insights, identify conflicting information, and summarize findings with proper citations. The tool should handle complex topics and organize information logically.",
+          title: "Interview Preparation Coach",
+          content: "I need an AI that helps prepare for job interviews by analyzing the job description, generating industry-specific questions, providing feedback on practice answers, and suggesting areas for improvement.",
           difficulty: "Medium"
         },
         {
-          title: "Weekly Market Trend Analyzer",
-          content: "Create an AI that collects financial news from major publications, tracks stock performance for a specific industry segment, identifies correlations between news events and market movements, and produces comprehensive weekly reports with visualizations of key trends and actionable insights.",
+          title: "Algorithmic Trading Strategy Analyzer",
+          content: "Create an AI that evaluates trading strategies by backtesting against historical market data, running Monte Carlo simulations to project outcomes, and suggesting optimizations while highlighting potential risks.",
           difficulty: "Hard"
         }
       ],

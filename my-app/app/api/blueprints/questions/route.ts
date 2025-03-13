@@ -4,7 +4,6 @@ import { generateText } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { extractSupabaseTokenFromCookies, getUserIdFromToken } from '@/utils/supabase-auth';
 import { ensureUserInDatabase } from '@/utils/user-sync';
-import { createStandardServerClient } from '@/utils/supabase';
 
 // Allow longer timeout for the AI to generate questions
 export const maxDuration = 30;
@@ -25,7 +24,7 @@ const QuestionsRequestSchema = z.object({
   prompt: z.string().min(1, "Prompt is required"),
   skill_level: z.enum(['beginner', 'intermediate', 'advanced']).optional(),
   learning_objective: z.string().optional(),
-  blueprint_id: z.string().uuid().optional(), // Add optional blueprint_id param
+  blueprint_id: z.string().uuid().optional(), // Optional blueprint_id param
 });
 
 // Define the Question type for TypeScript
@@ -33,53 +32,6 @@ export type Question = {
   id: number;
   title: string;
   content: string;
-}
-
-// Function to verify blueprint exists
-async function verifyBlueprintExists(blueprintId: string): Promise<boolean> {
-  console.log(`Verifying blueprint exists: ${blueprintId}`);
-  
-  // Initialize Supabase client for verification
-  const supabase = createStandardServerClient();
-  
-  // Add retry logic for blueprint verification
-  let blueprintVerified = false;
-  let verifyAttempts = 0;
-  const maxVerifyAttempts = 3;
-  
-  while (verifyAttempts < maxVerifyAttempts && !blueprintVerified) {
-    verifyAttempts++;
-    
-    // Add a delay between attempts (except first attempt)
-    if (verifyAttempts > 1) {
-      await new Promise(resolve => setTimeout(resolve, 500 * verifyAttempts));
-    }
-    
-    try {
-      // Check if the blueprint exists
-      const { data: blueprint, error } = await supabase
-        .from('blueprints')
-        .select('id')
-        .eq('id', blueprintId)
-        .single();
-      
-      if (!error && blueprint) {
-        console.log(`Blueprint verified on attempt ${verifyAttempts}: ${blueprint.id}`);
-        blueprintVerified = true;
-        break;
-      } else {
-        console.warn(`Blueprint verification attempt ${verifyAttempts} failed:`, error);
-      }
-    } catch (verifyError) {
-      console.error(`Error during verification attempt ${verifyAttempts}:`, verifyError);
-    }
-  }
-  
-  if (!blueprintVerified) {
-    console.error(`Blueprint ${blueprintId} not found after ${maxVerifyAttempts} attempts`);
-  }
-  
-  return blueprintVerified;
 }
 
 export async function POST(req: Request) {
@@ -104,31 +56,12 @@ export async function POST(req: Request) {
     const { prompt, skill_level, learning_objective, blueprint_id } = validationResult.data;
     console.log('Processing prompt:', prompt);
     
-    // If a blueprint_id is provided, try to verify it exists but continue anyway
+    // No blueprint verification - we assume it exists or will exist soon
+    // This resolves race conditions between blueprint creation and usage
     if (blueprint_id) {
-      try {
-        // Get Supabase credentials for API access
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-        
-        if (!supabaseUrl || !supabaseKey) {
-          console.warn('Missing Supabase URL or service role key, continuing without verification');
-        } else {
-          // Verify blueprint exists with retry logic
-          const blueprintExists = await verifyBlueprintExists(blueprint_id);
-          
-          if (blueprintExists) {
-            console.log('Blueprint verified, continuing with question generation');
-          } else {
-            console.warn('Blueprint not found, but continuing with question generation anyway');
-            // Note: We'll continue even if verification fails, to handle race conditions
-            // This is different from the previous behavior where we returned a 404
-          }
-        }
-      } catch (verifyError) {
-        console.error('Error verifying blueprint:', verifyError);
-        // Continue despite error - we can still generate questions
-      }
+      console.log(`Processing questions for blueprint ID: ${blueprint_id}`);
+    } else {
+      console.log('No blueprint ID provided, generating standalone questions');
     }
     
     // Generate questions using AI
@@ -537,6 +470,12 @@ You MUST respond in JSON format with a blueprint title, description, and an arra
               }
             }
             
+            // Initialize empty responses for each question
+            const initialResponses: Record<number, string> = {};
+            finalQuestions.forEach((q: { id: number; title: string; content: string }) => {
+              initialResponses[q.id] = ''; // Empty string for each question
+            });
+            
             let response;
             
             if (existingId) {
@@ -549,6 +488,7 @@ You MUST respond in JSON format with a blueprint title, description, and an arra
                   headers,
                   body: JSON.stringify({
                     questions: finalQuestions,
+                    responses: initialResponses, // Save empty responses
                     updated_at: new Date().toISOString()
                   })
                 }
@@ -559,7 +499,7 @@ You MUST respond in JSON format with a blueprint title, description, and an arra
               const body: Record<string, unknown> = {
                 blueprint_id,
                 questions: finalQuestions,
-                responses: {}, // Initialize with empty responses object to prevent null responses
+                responses: initialResponses, // Initialize with empty responses
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString()
               };
@@ -606,12 +546,19 @@ You MUST respond in JSON format with a blueprint title, description, and an arra
         }
 
         // Return the questions
-        return NextResponse.json({
+        const response = NextResponse.json({
           questions: finalQuestions,
           blueprint_title: blueprintTitle,
           blueprint_description: blueprintDescription,
           blueprint_id
         });
+        
+        // Add cache prevention headers to help with database sync issues
+        response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        response.headers.set('Pragma', 'no-cache');
+        response.headers.set('Expires', '0');
+        
+        return response;
       } catch (parseError) {
         console.error('Error parsing AI response:', parseError);
         
@@ -640,7 +587,14 @@ You MUST respond in JSON format with a blueprint title, description, and an arra
         ];
         
         // Return the fallback questions
-        return NextResponse.json({ questions: fallbackQuestions });
+        const fallbackResponse = NextResponse.json({ questions: fallbackQuestions });
+        
+        // Add cache prevention headers to help with database sync issues
+        fallbackResponse.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        fallbackResponse.headers.set('Pragma', 'no-cache');
+        fallbackResponse.headers.set('Expires', '0');
+        
+        return fallbackResponse;
       }
     } catch (aiError) {
       console.error('Error generating questions with AI:', aiError);

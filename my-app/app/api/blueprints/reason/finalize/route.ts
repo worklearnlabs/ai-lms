@@ -94,7 +94,7 @@ export async function POST(req: Request) {
     
     // Get the questions for this blueprint
     const { data: questionsData, error: questionsError } = await supabase
-      .from('blueprint_questions_responses')
+      .from('blueprint_questions')
       .select('questions')
       .eq('blueprint_id', blueprint_id)
       .single();

@@ -101,9 +101,8 @@ export async function POST(req: Request) {
     // Initialize Supabase client
     const supabase = createStandardServerClient();
     
-    // First check if this blueprint exists and if it's temporary
-    // This is done before authentication checks to allow temporary blueprint operations
-    console.log(`Verifying blueprint existence: ${blueprint_id}`);
+    // Check if the blueprint exists but don't treat it as a critical error if not found
+    console.log(`Checking blueprint existence: ${blueprint_id}`);
     
     const { data: blueprintData, error: blueprintError } = await supabase
       .from('blueprints')
@@ -112,20 +111,11 @@ export async function POST(req: Request) {
       .maybeSingle();
     
     if (blueprintError && blueprintError.code !== 'PGRST116') {
-      console.error('Error verifying blueprint:', blueprintError);
-      return NextResponse.json(
-        { 
-          error: 'Failed to verify blueprint', 
-          details: blueprintError.message,
-          code: blueprintError.code,
-          blueprint_id
-        },
-        { status: 500 }
-      );
+      console.warn('Error checking blueprint, but continuing:', blueprintError);
     }
     
     if (!blueprintData) {
-      console.error(`Blueprint with ID ${blueprint_id} not found during response saving`);
+      console.warn(`Blueprint with ID ${blueprint_id} not found during response saving, but continuing`);
       
       // Additional debug info - check recently created blueprints
       try {
@@ -191,23 +181,13 @@ export async function POST(req: Request) {
           console.error('Error during blueprint recreation:', recreateError);
         }
       }
-      
-      return NextResponse.json(
-        { 
-          error: 'Blueprint not found',
-          details: 'The blueprint ID does not exist in the database. The blueprint may have been deleted or never created.',
-          blueprint_id,
-          response_count: Object.keys(responses).length,
-          can_recreate: !!searchQuery && autoRecreate
-        },
-        { status: 404 }
-      );
     }
     
-    // Check if this is a temporary blueprint - we'll allow operations on temporary blueprints
-    // without strict authentication requirements
-    const isTemporaryBlueprint = blueprintData.is_temporary === true;
-    console.log(`Blueprint ${blueprint_id} is${isTemporaryBlueprint ? '' : ' not'} temporary, created at ${blueprintData.created_at || 'unknown'}`);
+    // Determine if this is a temporary blueprint
+    const isTemporaryBlueprint = blueprintData?.is_temporary === true;
+    if (blueprintData) {
+      console.log(`Blueprint ${blueprint_id} is${isTemporaryBlueprint ? '' : ' not'} temporary, created at ${blueprintData.created_at || 'unknown'}`);
+    }
     
     let user = null;
     
@@ -233,8 +213,8 @@ export async function POST(req: Request) {
         );
       }
       
-      // For non-temporary blueprints, verify the user has access
-      if (blueprintData.user_id !== user.id) {
+      // For non-temporary blueprints with data, verify the user has access
+      if (blueprintData && blueprintData.user_id !== user.id) {
         console.error(`User ${user.id} does not have access to blueprint ${blueprint_id}`);
         return NextResponse.json(
           { error: 'Access denied to this blueprint' },
