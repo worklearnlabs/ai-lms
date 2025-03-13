@@ -584,6 +584,36 @@ export function CreateBlueprintModal({
       // Step 1: Create a temporary blueprint first
       if (!tempBlueprintId) {
         console.log("No temporary blueprint ID found, creating one now");
+        
+        // First check if we already have a similar blueprint in progress
+        try {
+          // Get most recently created blueprints to see if we have a matching one
+          // Note: This requires implementing a /api/blueprints/recent endpoint
+          // that returns recent blueprints with limit parameter
+          const checkResponse = await fetch('/api/blueprints/recent?limit=5');
+          
+          if (checkResponse.ok) {
+            const recentBlueprints = await checkResponse.json();
+            console.log("Recent blueprints:", recentBlueprints);
+            
+            // Look for a matching blueprint with this prompt
+            const matchingBlueprint = recentBlueprints.find((bp: { prompt?: string; is_temporary?: boolean; id: string }) => 
+              bp.prompt && bp.prompt.trim() === prompt.trim() && bp.is_temporary
+            );
+            
+            if (matchingBlueprint) {
+              console.log(`Found existing blueprint with matching prompt: ${matchingBlueprint.id}`);
+              setTempBlueprintId(matchingBlueprint.id);
+              await fetchQuestions(prompt, matchingBlueprint.id);
+              setCurrentStep('conversation');
+              return;
+            }
+          }
+        } catch (checkError) {
+          console.error("Error checking for existing blueprints:", checkError);
+          // Continue with creating a new blueprint
+        }
+        
         const blueprintResponse = await fetch('/api/blueprints', {
           method: 'POST',
           headers: {
@@ -591,6 +621,7 @@ export function CreateBlueprintModal({
           },
           body: JSON.stringify({
             title: prompt.split('\n')[0].slice(0, 50) || 'Draft Blueprint',
+            prompt: prompt, // Include the prompt but not as search_query
             visibility: 'private',
             is_temporary: true // Flag this as a temporary blueprint
           }),
@@ -611,6 +642,9 @@ export function CreateBlueprintModal({
         console.log('Created temporary blueprint with ID:', blueprintData.id);
         setTempBlueprintId(blueprintData.id);
         
+        // Add a delay to ensure the blueprint is persisted before verifying or using it
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
         // Verify the blueprint exists by making a HEAD request
         try {
           const verifyResponse = await fetch(`/api/blueprints/${blueprintData.id}`, {
@@ -619,12 +653,28 @@ export function CreateBlueprintModal({
           
           if (!verifyResponse.ok) {
             console.warn(`Verification check for blueprint ${blueprintData.id} failed with status:`, verifyResponse.status);
+            if (verifyResponse.status === 404) {
+              // If verification fails with 404, add a longer delay and try again
+              console.log("Blueprint not found on first verification, waiting longer...");
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              
+              const retryVerify = await fetch(`/api/blueprints/${blueprintData.id}`, {
+                method: 'HEAD'
+              });
+              
+              if (!retryVerify.ok) {
+                console.error(`Blueprint ${blueprintData.id} still not found after retry`);
+                throw new Error("Failed to verify blueprint existence");
+              } else {
+                console.log(`Blueprint ${blueprintData.id} verified successfully on retry`);
+              }
+            }
           } else {
             console.log(`Blueprint ${blueprintData.id} verified successfully`);
           }
         } catch (verifyError) {
           console.warn("Failed to verify blueprint existence:", verifyError);
-          // Continue anyway
+          // Continue anyway, but log this issue
         }
         
         // Step 2: Now fetch questions using the temporary blueprint ID
@@ -764,6 +814,8 @@ export function CreateBlueprintModal({
     }
     
     // First verify the blueprint exists before attempting to save
+    let blueprintRecreated = false; // Track if we've already recreated the blueprint
+    
     try {
       console.log(`Verifying blueprint ${blueprintId} exists before saving responses`);
       const verifyResponse = await fetch(`/api/blueprints/${blueprintId}`, {
@@ -771,7 +823,17 @@ export function CreateBlueprintModal({
       });
       
       if (verifyResponse.status === 404) {
+        // Only recreate the blueprint once to avoid duplicates
+        if (blueprintRecreated) {
+          console.error(`Blueprint ${blueprintId} still not found after recreation attempt`);
+          throw new Error("Blueprint not found and recreation already attempted");
+        }
+        
         console.warn(`Blueprint ${blueprintId} not found during verification, creating new one`);
+        blueprintRecreated = true;
+        
+        // Add a delay before recreation to avoid race conditions
+        await new Promise(resolve => setTimeout(resolve, 1000));
         
         // The blueprint doesn't exist, we need to create it again
         const recreateResponse = await fetch('/api/blueprints', {
@@ -779,6 +841,7 @@ export function CreateBlueprintModal({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             title: prompt.split('\n')[0].slice(0, 50) || 'Draft Blueprint',
+            prompt: prompt, // Include the prompt but not as search_query
             visibility: 'private',
             is_temporary: true // Flag this as a temporary blueprint
           })
@@ -793,6 +856,10 @@ export function CreateBlueprintModal({
           
           // Use the new ID for subsequent operations
           blueprintId = newBlueprint.id;
+          
+          // Add longer delay to ensure the blueprint is persisted
+          await new Promise(resolve => setTimeout(resolve, 1500));
+          
           toast.info("Blueprint was recreated", {
             description: "Your temporary blueprint was lost but has been recreated."
           });
@@ -827,7 +894,6 @@ export function CreateBlueprintModal({
           headers: {
             'Content-Type': 'application/json',
             'X-Blueprint-Search-Query': prompt, // Pass the prompt as a header for potential recreation
-            'X-Auto-Recreate-Blueprint': 'true' // Enable automatic blueprint recreation
           },
           body: JSON.stringify({
             blueprint_id: blueprintId,
@@ -864,10 +930,18 @@ export function CreateBlueprintModal({
           } 
           
           if (statusCode === 404) {
-            // Blueprint not found - let's recreate it
-            console.warn('Blueprint not found (404), recreating temporary blueprint...');
+            // Blueprint not found - check if this is a retry
+            if (attemptCount > 1) {
+              console.warn('Blueprint still not found after retry, aborting...');
+              throw new Error('Blueprint not found and recreation failed');
+            }
+            
+            console.warn('Blueprint not found (404), attempting to recreate temporary blueprint...');
             
             try {
+              // Add a delay before recreation to avoid race conditions
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              
               const recreateResponse = await fetch('/api/blueprints', {
                 method: 'POST',
                 headers: {
@@ -875,6 +949,7 @@ export function CreateBlueprintModal({
                 },
                 body: JSON.stringify({
                   title: prompt.split('\n')[0].slice(0, 50) || 'Draft Blueprint',
+                  prompt: prompt,
                   visibility: 'private',
                   is_temporary: true
                 }),
@@ -890,8 +965,8 @@ export function CreateBlueprintModal({
                 // Try again with the new blueprint ID
                 blueprintId = newBlueprintData.id;
                 
-                // Small delay before retrying
-                await new Promise(resolve => setTimeout(resolve, 500));
+                // Add longer delay before retrying to ensure the blueprint is persisted
+                await new Promise(resolve => setTimeout(resolve, 1500));
                 continue; // Skip to next retry with new ID
               } else {
                 console.error('Failed to recreate temporary blueprint:', await recreateResponse.text());
@@ -899,10 +974,6 @@ export function CreateBlueprintModal({
             } catch (recreateError) {
               console.error('Error recreating blueprint:', recreateError);
             }
-            
-            lastError = new Error(responseData.error || 'Blueprint not found');
-            await new Promise(resolve => setTimeout(resolve, 500));
-            continue;
           }
           
           // General error handler
@@ -971,15 +1042,17 @@ export function CreateBlueprintModal({
       };
       
       // Prepare the blueprint data
+      // Include the search_query generated by the API in generateFinalBlueprint()
+      // This search_query will be used by the research agent (Perplexity)
       const blueprintData = {
         title: finalData.title,
-        search_query: finalData.search_query,
-        details: finalData.description, // Save description to the details field
+        ...(finalData.search_query ? { search_query: finalData.search_query } : {}), // Only include if defined
+        details: finalData.description,
         prompt,
         content,
         complexity: finalData.complexity,
         estimated_time: finalData.estimated_time,
-        is_temporary: false, // Important: Set is_temporary to false to mark it as permanent
+        is_temporary: false,
       };
       
       console.log(`Sending ${method} request to ${endpoint}:`, blueprintData);
@@ -1044,6 +1117,8 @@ export function CreateBlueprintModal({
       };
       
       // Call the API to generate the final blueprint
+      // This endpoint should use all responses to generate an improved search_query for research
+      console.log("Calling finalize API to generate the refined search_query and other blueprint details");
       const response = await fetch('/api/blueprints/reason/finalize', {
         method: 'POST',
         headers: {
@@ -1061,9 +1136,11 @@ export function CreateBlueprintModal({
       const data = await response.json();
       
       // Update the final data state
+      // data.search_query should be generated by the API based on the user's responses
+      // This will be passed to the research agent (Perplexity) when the blueprint is created
       setFinalData({
         title: data.title || title,
-        search_query: prompt, // Always use the prompt directly, not data.search_query
+        search_query: data.search_query, // Only use the API-generated search_query, no fallback
         description: data.description || description,
         complexity: data.skill_level || 'beginner',
         estimated_time: data.estimated_time || '1-2 hours',
@@ -1255,11 +1332,54 @@ export function CreateBlueprintModal({
   // Helper function to create a new temporary blueprint
   const createNewTempBlueprint = async () => {
     try {
+      // First check if we already have a similar blueprint in progress
+      try {
+        const checkResponse = await fetch('/api/blueprints/recent?limit=5');
+        
+        if (checkResponse.ok) {
+          const recentBlueprints = await checkResponse.json();
+          console.log("Checking recent blueprints:", recentBlueprints);
+          
+          // Look for a matching blueprint with this prompt
+          const matchingBlueprint = recentBlueprints.find((bp: { prompt?: string; is_temporary?: boolean; id: string }) => 
+            bp.prompt && bp.prompt.trim() === prompt.trim() && bp.is_temporary
+          );
+          
+          if (matchingBlueprint) {
+            console.log(`Found existing blueprint with matching prompt: ${matchingBlueprint.id}`);
+            setTempBlueprintId(matchingBlueprint.id);
+            
+            // Verify this blueprint exists and is accessible
+            const verifyResponse = await fetch(`/api/blueprints/${matchingBlueprint.id}`, {
+              method: 'HEAD'
+            });
+            
+            if (verifyResponse.ok) {
+              console.log(`Verified existing blueprint ${matchingBlueprint.id}`);
+              toast.info("Using existing blueprint", {
+                description: "Found an existing draft with the same prompt"
+              });
+              setDebugResults(JSON.stringify({
+                action: "Using existing blueprint",
+                id: matchingBlueprint.id,
+                timestamp: new Date().toISOString()
+              }, null, 2));
+              return matchingBlueprint.id;
+            }
+          }
+        }
+      } catch (checkError) {
+        console.error("Error checking for existing blueprints:", checkError);
+        // Continue with creating a new blueprint
+      }
+      
+      // Create a new blueprint if no matching one was found
       const response = await fetch('/api/blueprints', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: prompt.split('\n')[0].slice(0, 50) || 'Draft Blueprint',
+          prompt: prompt, // Include the prompt but not as search_query
           visibility: 'private',
           is_temporary: true
         })
@@ -1282,6 +1402,11 @@ export function CreateBlueprintModal({
           response: data,
           timestamp: new Date().toISOString()
         }, null, 2));
+        
+        // Add a delay to ensure the blueprint is persisted before returning
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        return data.id;
       } else {
         throw new Error("Invalid response data when creating blueprint");
       }
@@ -1291,6 +1416,7 @@ export function CreateBlueprintModal({
         description: error instanceof Error ? error.message : "Unknown error occurred"
       });
       setDebugResults(`Create Error: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
     }
   };
 
@@ -1522,14 +1648,16 @@ export function CreateBlueprintModal({
                     </div>
                     
                     <div>
-                      <Label htmlFor="search_query" className="text-base">Search Query</Label>
-                      <Textarea 
-                        id="search_query"
-                        value={finalData.search_query}
-                        onChange={(e) => setFinalData({...finalData, search_query: e.target.value})}
-                        className="mt-1"
-                        rows={4}
-                      />
+                      <Label htmlFor="search_query" className="text-base">Generated Search Query</Label>
+                      <div className="text-sm p-2 border rounded-md mt-1 h-20 overflow-auto bg-muted/50">
+                        {finalData.search_query ? (
+                          finalData.search_query
+                        ) : (
+                          <span className="text-muted-foreground italic">
+                            Will be generated when blueprint is created
+                          </span>
+                        )}
+                      </div>
                     </div>
                     
                     <div>
