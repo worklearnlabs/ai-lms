@@ -1,45 +1,24 @@
-import { createBrowserClient } from '@supabase/ssr';
-import { createClient, SupabaseClientOptions } from '@supabase/supabase-js';
+/**
+ * Legacy Supabase utilities
+ * 
+ * This file is maintained for backward compatibility.
+ * New code should import from '@/utils/supabase/index' instead.
+ */
+
+// Re-export the new utilities for backward compatibility
+export * from './supabase/index';
+
+// For backward compatibility, re-export the default client
+import { supabaseClient, createBrowserSupabaseClient } from './supabase/client';
+export { supabaseClient as supabase };
+
+// Add a re-export of createBrowserSupabaseClient as createClientSupabase for backward compatibility
+export { createBrowserSupabaseClient as createClientSupabase };
+
+// Import required types for exported functions
 import { Database } from '@/types/supabase';
-import { extractSupabaseTokenFromCookies } from './supabase-auth';
-
-// --------------------------
-// Client-side Supabase Client
-// --------------------------
-export const createClientSupabase = () => {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  
-  if (!supabaseUrl || !supabaseAnonKey || supabaseUrl === 'undefined' || supabaseAnonKey === 'undefined') {
-    console.error('Missing or invalid Supabase environment variables');
-    // Return a non-functional client that won't throw errors but won't work
-    return createClient<Database>(
-      'https://placeholder.supabase.co',
-      'placeholder-key',
-      {
-        auth: {
-          persistSession: false,
-          autoRefreshToken: false,
-        },
-        global: {
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-          },
-        },
-      }
-    ) as ReturnType<typeof createBrowserClient<Database>>;
-  }
-  
-  // For browser client, we don't need to specify cookies
-  return createBrowserClient<Database>(
-    supabaseUrl,
-    supabaseAnonKey
-  );
-};
-
-// For backward compatibility
-export const supabase = createClientSupabase();
+import { SupabaseClientOptions } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js';
 
 // Legacy server client using standard supabase-js
 export function createStandardServerClient(headers?: Headers) {
@@ -126,4 +105,10 @@ function parseCookies(cookieHeader: string) {
     if (name && value) cookies[name] = value;
   });
   return cookies;
-} 
+}
+
+// Import the token extraction function
+import { extractSupabaseTokenFromCookies } from './supabase-auth';
+
+// Export a default client for backward compatibility
+export default supabaseClient; 

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { get, post } from "@/utils/fetch-wrapper";
 
 interface User {
   id: number;
@@ -28,11 +29,7 @@ export function UserList() {
   useEffect(() => {
     const fetchUsers = async () => {
       try {
-        const response = await fetch("/api/users");
-        if (!response.ok) {
-          throw new Error("Failed to fetch users");
-        }
-        const data = await response.json();
+        const data = await get<{ users: User[] }>("/api/users");
         setUsers(data.users);
       } catch (err) {
         setError(err instanceof Error ? err.message : "An error occurred");
@@ -55,19 +52,7 @@ export function UserList() {
     e.preventDefault();
     
     try {
-      const response = await fetch("/api/users", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(newUser),
-      });
-      
-      if (!response.ok) {
-        throw new Error("Failed to create user");
-      }
-      
-      const data = await response.json();
+      const data = await post<{ user: User }>("/api/users", newUser);
       setUsers((prev) => [...prev, data.user]);
       
       // Reset form
