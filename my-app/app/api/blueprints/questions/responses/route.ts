@@ -103,24 +103,103 @@ export async function POST(req: Request) {
     
     // First check if this blueprint exists and if it's temporary
     // This is done before authentication checks to allow temporary blueprint operations
+    console.log(`Verifying blueprint existence: ${blueprint_id}`);
+    
     const { data: blueprintData, error: blueprintError } = await supabase
       .from('blueprints')
-      .select('id, user_id, is_temporary')
+      .select('id, user_id, is_temporary, created_at, title')
       .eq('id', blueprint_id)
       .maybeSingle();
     
     if (blueprintError && blueprintError.code !== 'PGRST116') {
       console.error('Error verifying blueprint:', blueprintError);
       return NextResponse.json(
-        { error: 'Failed to verify blueprint', details: blueprintError.message },
+        { 
+          error: 'Failed to verify blueprint', 
+          details: blueprintError.message,
+          code: blueprintError.code,
+          blueprint_id
+        },
         { status: 500 }
       );
     }
     
     if (!blueprintData) {
-      console.error(`Blueprint with ID ${blueprint_id} not found`);
+      console.error(`Blueprint with ID ${blueprint_id} not found during response saving`);
+      
+      // Additional debug info - check recently created blueprints
+      try {
+        const { data: recentBlueprints, error: recentError } = await supabase
+          .from('blueprints')
+          .select('id, created_at, is_temporary, title')
+          .order('created_at', { ascending: false })
+          .limit(5);
+          
+        if (recentError) {
+          console.error('Error fetching recent blueprints:', recentError);
+        } else if (recentBlueprints && recentBlueprints.length > 0) {
+          console.log('Most recent blueprints:', recentBlueprints.map(bp => 
+            `${bp.id} (created: ${bp.created_at}, temp: ${bp.is_temporary ? 'yes' : 'no'}, title: ${bp.title?.substring(0, 20) || 'untitled'})`
+          ).join(', '));
+        } else {
+          console.log('No recent blueprints found in database');
+        }
+      } catch (debugError) {
+        console.error(`Error in recent blueprints query:`, debugError);
+      }
+      
+      // Check if there's a search_query in the request headers - if so, we can recreate the blueprint
+      const searchQuery = req.headers.get('X-Blueprint-Search-Query');
+      const autoRecreate = req.headers.get('X-Auto-Recreate-Blueprint') === 'true';
+      
+      if (autoRecreate && searchQuery) {
+        console.log(`Attempting to recreate missing temporary blueprint with search query: ${searchQuery.substring(0, 50)}...`);
+        
+        try {
+          // Create a new temporary blueprint with the provided search query
+          const { data: newBlueprint, error: createError } = await supabase
+            .from('blueprints')
+            .insert({
+              title: `Recreated Blueprint (${new Date().toLocaleString()})`,
+              search_query: searchQuery,
+              visibility: 'private',
+              is_temporary: true,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            })
+            .select()
+            .single();
+            
+          if (createError) {
+            console.error('Failed to recreate blueprint:', createError);
+          } else if (newBlueprint) {
+            console.log(`Successfully recreated blueprint with ID: ${newBlueprint.id}`);
+            
+            // Now use this new blueprint ID for the response
+            return NextResponse.json(
+              { 
+                success: true,
+                message: 'Blueprint recreated and responses saved',
+                warning: 'Original blueprint not found, created a new one',
+                blueprint_id: newBlueprint.id,
+                original_blueprint_id: blueprint_id,
+                recreated: true
+              }
+            );
+          }
+        } catch (recreateError) {
+          console.error('Error during blueprint recreation:', recreateError);
+        }
+      }
+      
       return NextResponse.json(
-        { error: 'Blueprint not found' },
+        { 
+          error: 'Blueprint not found',
+          details: 'The blueprint ID does not exist in the database. The blueprint may have been deleted or never created.',
+          blueprint_id,
+          response_count: Object.keys(responses).length,
+          can_recreate: !!searchQuery && autoRecreate
+        },
         { status: 404 }
       );
     }
@@ -128,7 +207,7 @@ export async function POST(req: Request) {
     // Check if this is a temporary blueprint - we'll allow operations on temporary blueprints
     // without strict authentication requirements
     const isTemporaryBlueprint = blueprintData.is_temporary === true;
-    console.log(`Blueprint ${blueprint_id} is${isTemporaryBlueprint ? '' : ' not'} temporary`);
+    console.log(`Blueprint ${blueprint_id} is${isTemporaryBlueprint ? '' : ' not'} temporary, created at ${blueprintData.created_at || 'unknown'}`);
     
     let user = null;
     

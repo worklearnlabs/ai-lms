@@ -371,11 +371,8 @@ export async function DELETE(
   }
 }
 
-// HEAD endpoint to check if a blueprint exists
-export async function HEAD(
-  req: Request,
-  context: { params: { id: string } }
-) {
+// Handler for HEAD /api/blueprints/[id]
+export async function HEAD(request: Request, context: { params: { id: string } }) {
   try {
     // Properly await the params object
     const params = await context.params;
@@ -386,14 +383,26 @@ export async function HEAD(
     // Validate the ID
     if (!id) {
       console.log('Blueprint ID is missing in HEAD request');
-      return new Response(null, { status: 400 });
+      return new Response(null, { 
+        status: 400,
+        headers: {
+          'X-Error': 'Missing blueprint ID',
+          'X-Debug-Info': 'Blueprint ID not provided in request'
+        }
+      });
     }
     
     // Format validation for UUIDs
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!uuidRegex.test(id)) {
       console.error(`Invalid UUID format for blueprint ID in HEAD request: ${id}`);
-      return new Response(null, { status: 400 });
+      return new Response(null, { 
+        status: 400,
+        headers: {
+          'X-Error': 'Invalid blueprint ID format',
+          'X-Debug-Info': `ID "${id}" does not match UUID format`
+        }
+      });
     }
     
     // Get the blueprint from Supabase - simple approach
@@ -402,18 +411,65 @@ export async function HEAD(
     // Check if the blueprint exists - also get is_temporary field to log it
     const { data, error } = await supabase
       .from('blueprints')
-      .select('id, is_temporary')
+      .select('id, is_temporary, created_at')
       .eq('id', id)
       .maybeSingle(); // Use maybeSingle to avoid errors for non-existent IDs
     
     if (error) {
       console.error(`Database error in HEAD request for blueprint ${id}:`, error);
-      return new Response(null, { status: 500 });
+      return new Response(null, { 
+        status: 500,
+        headers: {
+          'X-Error': 'Database error',
+          'X-Debug-Info': `${error.code}: ${error.message}`
+        }
+      });
     }
     
     if (!data) {
       console.log(`Blueprint with ID ${id} does not exist (HEAD request)`);
-      return new Response(null, { status: 404 });
+      
+      // Log the result from a more direct query to help debug
+      try {
+        const { count, error: countError } = await supabase
+          .from('blueprints')
+          .select('id', { count: 'exact', head: true })
+          .eq('id', id);
+          
+        if (countError) {
+          console.error(`Error in count query for ID ${id}:`, countError);
+        } else {
+          console.log(`Count query result for ID ${id}: ${count}`);
+        }
+      } catch (debugError) {
+        console.error(`Error in debug count query:`, debugError);
+      }
+      
+      // Check recent blueprints to help debug
+      try {
+        const { data: recentBlueprints, error: recentError } = await supabase
+          .from('blueprints')
+          .select('id, created_at')
+          .order('created_at', { ascending: false })
+          .limit(5);
+          
+        if (recentError) {
+          console.error('Error fetching recent blueprints:', recentError);
+        } else if (recentBlueprints) {
+          console.log('Most recent blueprints:', recentBlueprints.map(bp => 
+            `${bp.id} (created: ${bp.created_at})`).join(', '));
+        }
+      } catch (debugError) {
+        console.error(`Error in recent blueprints query:`, debugError);
+      }
+      
+      return new Response(null, { 
+        status: 404,
+        headers: {
+          'X-Error': 'Blueprint not found',
+          'X-Debug-Info': `Blueprint ${id} does not exist in database`
+        }
+      });
     }
     
     // If the blueprint is temporary, log it
@@ -423,9 +479,23 @@ export async function HEAD(
       console.log(`Blueprint with ID ${id} exists (HEAD request)`);
     }
     
-    return new Response(null, { status: 200 });
+    // Return success with some useful headers
+    return new Response(null, { 
+      status: 200,
+      headers: {
+        'X-Blueprint-Found': 'true',
+        'X-Blueprint-Type': data.is_temporary ? 'temporary' : 'permanent',
+        'X-Blueprint-Created': data.created_at || 'unknown'
+      }
+    });
   } catch (error) {
     console.error('Error in HEAD request for blueprint:', error);
-    return new Response(null, { status: 500 });
+    return new Response(null, { 
+      status: 500,
+      headers: {
+        'X-Error': 'Server error',
+        'X-Debug-Info': error instanceof Error ? error.message : 'Unknown error'
+      }
+    });
   }
 } 
