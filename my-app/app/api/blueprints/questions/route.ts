@@ -264,7 +264,6 @@ Format your response as a JSON object with the following structure:
                       title: title,
                       prompt: promptToUse,
                       details: description,
-                      description: description,
                       ...(shouldUpdateUserId ? { user_id: applicationUserId } : {})
                     })
                     .eq('id', blueprint_id)

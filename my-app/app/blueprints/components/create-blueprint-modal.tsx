@@ -371,8 +371,8 @@ export function CreateBlueprintModal({
             setTitle(data.title || "");
             setPrompt(data.prompt || "");
             
-            // Set description from either field, prioritizing 'description' if available
-            setDescription(data.description || data.details || "");
+            // Set description from either field, prioritizing 'details' as that's what's in the database
+            setDescription(data.details || data.description || "");
             
             // Store the initial prompt to track changes later
             setInitialPrompt(data.prompt || "");
@@ -394,7 +394,7 @@ export function CreateBlueprintModal({
             console.log("Loaded blueprint details:", {
               title: data.title,
               prompt: data.prompt,
-              description: data.description || data.details,
+              description: data.details || data.description,
               hasSearchQuery: !!data.search_query,
               hasQuestions: !!(data.content && data.content.questions),
               hasResponses: !!(data.content && data.content.responses),
@@ -415,7 +415,7 @@ export function CreateBlueprintModal({
                 description: data.description || data.details || "",
                 complexity: data.complexity,
                 estimated_time: data.estimated_time,
-                prerequisites: data.prerequisites
+                prerequisites: data.prerequisites || []
               });
               
               // We'll delay this navigation to ensure we go to the conversation step first
@@ -1625,7 +1625,9 @@ export function CreateBlueprintModal({
     }
   };
 
-  // Handle initial prompt submission and question generation
+  // Now modify the handleInitialPrompt function around line 1629
+  // Replace the blueprint creation part with our new approach
+
   const handleInitialPrompt = async () => {
     if (!prompt || prompt.trim() === '') {
       toast.error("Please enter a prompt for your blueprint");
@@ -1639,31 +1641,30 @@ export function CreateBlueprintModal({
       if (!tempBlueprintId) {
         console.log("No temporary blueprint ID found, creating one now");
         
-        // Generate a title for the blueprint
+        // Generate just the title for the blueprint
         const generatedTitle = await generateTitle(prompt);
-        
-        const descriptionToUse = description || ""; // Ensure description is not undefined
-        console.log("Creating blueprint with description:", descriptionToUse);
+        console.log("Generated title:", generatedTitle);
         
         try {
-          // Use the post helper from fetch-wrapper
+          // Create a minimal blueprint with empty details - we'll update it after getting questions
           const blueprintData = await post('/api/blueprints', {
             title: generatedTitle,
-            prompt: prompt, // Include the prompt but not as search_query
-            details: descriptionToUse, // Ensure description is sent as details
+            prompt: prompt,
+            details: "", // Empty details initially
             visibility: 'private',
-            is_temporary: true // Flag this as a temporary blueprint
+            is_temporary: true
           });
           
           console.log('Created temporary blueprint with ID:', blueprintData.id);
           console.log('Blueprint data received:', blueprintData);
           setTempBlueprintId(blueprintData.id);
           
-          // Add a significant delay after blueprint creation to allow database propagation
+          // Add a slight delay to allow database propagation
           console.log("Waiting for database propagation...");
-          await new Promise(resolve => setTimeout(resolve, 2000)); // 2-second delay
+          await new Promise(resolve => setTimeout(resolve, 1000));
           
           // Fetch questions directly using the new blueprint ID
+          // The questions API will return a title and description we can use to update the blueprint
           console.log('Fetching questions with new blueprint ID', blueprintData.id);
           await fetchQuestionsDirectly(prompt, blueprintData.id);
         } catch (error) {
@@ -1692,6 +1693,9 @@ export function CreateBlueprintModal({
     }
   };
 
+  // Add the direct blueprint update function before fetchQuestionsDirectly
+  // Add this around line 1680 (before the fetchQuestionsDirectly function)
+
   // New simple function to fetch questions directly
   const fetchQuestionsDirectly = async (userPrompt: string, blueprintId: string) => {
     console.log(`Fetching questions for blueprint ${blueprintId}`);
@@ -1704,69 +1708,59 @@ export function CreateBlueprintModal({
       
       console.log('Questions API response:', questionsData);
       
-      // Check if we received a blueprint title or description and update the state
-      if (questionsData.title) {
-        console.log('Setting blueprint title from API response:', questionsData.title);
-        setTitle(questionsData.title);
-      } else if (questionsData.blueprint_title) {
-        console.log('Setting blueprint title from API response (using blueprint_title):', questionsData.blueprint_title);
-        setTitle(questionsData.blueprint_title);
+      // Extract title and description from the API response
+      const apiTitle = questionsData.title || questionsData.blueprint_title;
+      const apiDescription = questionsData.description || questionsData.blueprint_description;
+      
+      if (apiTitle) {
+        console.log('Setting blueprint title from API response:', apiTitle);
+        setTitle(apiTitle);
       }
       
-      let descriptionUpdated = false;
-      if (questionsData.description) {
-        console.log('Setting blueprint description from API response:', questionsData.description);
-        setDescription(questionsData.description);
-        descriptionUpdated = true;
-      } else if (questionsData.blueprint_description) {
-        console.log('Setting blueprint description from API response (using blueprint_description):', questionsData.blueprint_description);
-        setDescription(questionsData.blueprint_description);
-        descriptionUpdated = true;
-      }
-      
-      // Update the blueprint details in the database if we got a new description
-      if (descriptionUpdated && blueprintId && (questionsData.description || questionsData.blueprint_description)) {
+      if (apiDescription) {
+        console.log('Setting blueprint description from API response:', apiDescription);
+        setDescription(apiDescription);
+        
+        // Update the blueprint in the database with the received description
         try {
-          console.log('Updating blueprint details in database');
+          console.log(`Updating blueprint ${blueprintId} with description from questions API`);
           
-          // Use the values directly from questionsData rather than relying on state variables
-          const newDescription = questionsData.description || questionsData.blueprint_description;
-          const newTitle = questionsData.title || questionsData.blueprint_title || "Draft Blueprint";
-          
-          // Update local state regardless of server update success
-          setTitle(newTitle);
-          setDescription(newDescription);
-          
-          // When there's a server-side issue, this update can be skipped
-          // The blueprint will still work with the local state values
-          // We'll try a very simple update with minimal fields
-          console.log('Skipping server-side blueprint update due to previous errors');
-          /* 
-          // This code is intentionally commented out to bypass the problematic update
-          // It can be re-enabled later when the server issue is fixed
-          const updateResponse = await fetch(`/api/blueprints/${blueprintId}`, {
-            method: 'PATCH',
-            headers: {
-              'Content-Type': 'application/json',
-              'Cache-Control': 'no-cache'
-            },
-            credentials: 'include',
-            body: JSON.stringify({
-              details: newDescription,
-              title: newTitle
-            })
+          // Use a direct POST to update the blueprint with title and description
+          const updateResponse = await post('/api/blueprints', {
+            id: blueprintId,
+            title: apiTitle,
+            details: apiDescription,
+            prompt: userPrompt,
+            is_temporary: true,
+            visibility: 'private'
           });
           
-          if (updateResponse.ok) {
-            console.log('Successfully updated blueprint details');
-          }
-          */
-        } catch (error) {
-          console.error('Error updating blueprint details:', error);
-          // Continue with questions loading even if details update fails
+          console.log('Blueprint updated with description:', updateResponse);
+        } catch (updateError) {
+          console.error('Failed to update blueprint with description:', updateError);
+          // Store in localStorage as fallback
+          localStorage.setItem(`blueprint_details_${blueprintId}`, apiDescription);
+        }
+      } else {
+        // Create a fallback description if none was provided by the API
+        console.log('No description found in API response, generating fallback');
+        const fallbackDescription = `This blueprint will create an AI that ${userPrompt.toLowerCase().startsWith('i need') ? userPrompt.substring(7) : userPrompt}`;
+        setDescription(fallbackDescription);
+        
+        // Try to update the blueprint with the fallback description
+        try {
+          await post('/api/blueprints', {
+            id: blueprintId,
+            details: fallbackDescription,
+            is_temporary: true
+          });
+        } catch (fallbackError) {
+          console.error('Failed to update with fallback description:', fallbackError);
+          localStorage.setItem(`blueprint_details_${blueprintId}`, fallbackDescription);
         }
       }
       
+      // Process questions from the API response
       if (questionsData.questions && Array.isArray(questionsData.questions)) {
         console.log('Received questions array:', questionsData.questions);
         
