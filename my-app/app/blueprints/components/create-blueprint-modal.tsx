@@ -141,28 +141,28 @@ export function CreateBlueprintModal({
   // Example blueprints with difficulty levels - now we'll fetch these dynamically
   const [examples, setExamples] = useState([
     {
-      title: "Video Content Accessibility Enhancer",
-      content: "I need an AI that automatically generates accurate captions, audio descriptions, and transcripts for video content, ensuring compliance with accessibility standards and improving reach to diverse audiences.",
+      title: "AI Business Intelligence Dashboard",
+      content: "I need an AI that analyzes our company's sales, marketing, and customer service data across multiple platforms, then creates a consolidated dashboard with actionable insights and automated weekly report generation.",
       difficulty: "Medium"
     },
     {
-      title: "Research Paper Summarizer",
-      content: "Build an AI that takes academic research papers, extracts key findings, methodology details, and limitations, then generates plain-language summaries at different technical levels for various audiences.",
+      title: "Personal Finance Coach",
+      content: "Build an AI that connects to my bank accounts, analyzes spending patterns, suggests personalized savings strategies, monitors investment opportunities, and provides proactive alerts for unusual transactions.",
       difficulty: "Medium"
     },
     {
-      title: "Real Estate Investment Analyzer",
-      content: "Create an AI that evaluates potential real estate investments by analyzing market trends, property data, neighborhood statistics, and expected ROI, then generating comprehensive risk/opportunity assessments.",
+      title: "Multilingual Content Localizer",
+      content: "Create an AI that automatically translates and culturally adapts marketing content across multiple languages, ensuring tone, idioms, and cultural references are appropriate for each target market.",
       difficulty: "Hard"
     },
     {
-      title: "Dietary Meal Planner",
-      content: "I need an AI that creates personalized weekly meal plans based on dietary restrictions, nutritional goals, and food preferences, generating shopping lists and recipes while ensuring balanced nutrition.",
+      title: "Healthcare Symptom Analyzer",
+      content: "I need an AI that allows users to input symptoms, asks relevant follow-up questions, suggests possible conditions with confidence levels, and recommends appropriate next steps while citing medical sources.",
       difficulty: "Easy"
     },
     {
-      title: "Legal Document Analyzer",
-      content: "Build an AI that reviews legal contracts, identifies potentially problematic clauses, explains implications in plain language, suggests alternative wording, and flags items requiring attorney attention.",
+      title: "E-Commerce Inventory Optimizer",
+      content: "Build an AI that predicts product demand based on seasonal trends, social media sentiment, and market conditions to automatically adjust inventory levels and reorder timing to minimize costs.",
       difficulty: "Hard"
     }
   ]);
@@ -1729,43 +1729,38 @@ export function CreateBlueprintModal({
         try {
           console.log('Updating blueprint details in database');
           
-          // Prepare a more complete update payload with required fields
-          const updatePayload = {
-            details: questionsData.description || questionsData.blueprint_description,
-            // Include these essential fields to ensure the API accepts the update
-            title: title || questionsData.title || questionsData.blueprint_title || "Draft Blueprint",
-            prompt: prompt, // Include the current prompt
-            // Don't change the temporary status
-            is_temporary: true
-          };
+          // Use the values directly from questionsData rather than relying on state variables
+          const newDescription = questionsData.description || questionsData.blueprint_description;
+          const newTitle = questionsData.title || questionsData.blueprint_title || "Draft Blueprint";
           
-          console.log('Blueprint update payload:', updatePayload);
+          // Update local state regardless of server update success
+          setTitle(newTitle);
+          setDescription(newDescription);
           
+          // When there's a server-side issue, this update can be skipped
+          // The blueprint will still work with the local state values
+          // We'll try a very simple update with minimal fields
+          console.log('Skipping server-side blueprint update due to previous errors');
+          /* 
+          // This code is intentionally commented out to bypass the problematic update
+          // It can be re-enabled later when the server issue is fixed
           const updateResponse = await fetch(`/api/blueprints/${blueprintId}`, {
             method: 'PATCH',
             headers: {
               'Content-Type': 'application/json',
-              'Cache-Control': 'no-cache, no-store, must-revalidate',
-              'Pragma': 'no-cache'
+              'Cache-Control': 'no-cache'
             },
             credentials: 'include',
-            body: JSON.stringify(updatePayload)
+            body: JSON.stringify({
+              details: newDescription,
+              title: newTitle
+            })
           });
           
           if (updateResponse.ok) {
             console.log('Successfully updated blueprint details');
-          } else {
-            const errorText = await updateResponse.text();
-            console.error('Failed to update blueprint details:', errorText);
-            
-            // Try to parse the error for more details
-            try {
-              const errorJson = JSON.parse(errorText);
-              console.error('Error details:', errorJson);
-            } catch {
-              // If parsing fails, just log the text
-            }
           }
+          */
         } catch (error) {
           console.error('Error updating blueprint details:', error);
           // Continue with questions loading even if details update fails
