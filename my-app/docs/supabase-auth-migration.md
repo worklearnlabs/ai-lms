@@ -11,6 +11,17 @@ We've successfully migrated our authentication system to use Supabase's recommen
 3. ✅ Created standardized utilities for server and client auth
 4. ✅ Added proper API wrappers for authenticated routes
 5. ✅ Added fetch utilities to ensure credentials are included
+6. ✅ Added RLS policy for temporary blueprint questions
+7. ✅ Implemented service role client for handling unauthenticated operations
+
+## Security Improvements
+
+The new authentication system follows Supabase's security best practices:
+
+- ✅ Uses `auth.getUser()` instead of `getSession()` for authentication decisions
+- ✅ Properly refreshes auth tokens through middleware
+- ✅ Implements secure cookie handling for session management
+- ✅ Provides appropriate Row Level Security (RLS) policies for database access
 
 ## How We Updated Our Code
 
@@ -120,9 +131,33 @@ export const GET = createRouteHandler(
 );
 ```
 
+## Database Access & RLS Policies
+
+We've also improved how the API handles database access:
+
+```tsx
+// When handling temporary blueprints or unauthenticated access
+const shouldUseServiceRole = isTemporaryBlueprint || !user;
+const dbClient = shouldUseServiceRole
+  ? getServiceRoleClient() || supabase
+  : supabase;
+
+// Then use dbClient for database operations
+const { data, error } = await dbClient.from("table").select("*");
+```
+
+Additionally, we've implemented a new RLS policy to allow operations on temporary blueprint questions:
+
+```sql
+-- Allow operations on blueprint questions for temporary blueprints
+CREATE POLICY allow_temporary_blueprint_questions ON public.blueprint_questions
+    USING (blueprint_id IN (SELECT id FROM public.blueprints WHERE is_temporary = true))
+    WITH CHECK (blueprint_id IN (SELECT id FROM public.blueprints WHERE is_temporary = true));
+```
+
 ## Next Steps
 
-1. **Continue API Route Migration**: We've updated some key API routes, but there are more that should be migrated to the new pattern. Run this command to find remaining routes to update:
+1. **Continue API Route Migration**: We've updated all critical API routes, but run this command to find any that might have been missed:
 
    ```bash
    find my-app/app -type f -name "route.ts" | xargs grep -l "withRouteAuth"
@@ -136,12 +171,7 @@ export const GET = createRouteHandler(
 
    Then update them to use the fetch wrapper or add `credentials: 'include'`.
 
-3. **Test Thoroughly**: After completing the migration, test all areas of the application that involve authentication to ensure smooth operation:
-
-   - Login flow
-   - Protected routes
-   - API calls from client components
-   - Server-rendered protected content
+3. **Test Thoroughly**: Continue testing all areas of the application that involve authentication to ensure smooth operation.
 
 4. **Monitor for Issues**: Keep an eye on server logs and error tracking for any auth-related issues in the coming days.
 
@@ -151,6 +181,9 @@ export const GET = createRouteHandler(
 - ✅ Ensured credentials are included in fetch calls
 - ✅ Properly refreshed auth sessions via middleware
 - ✅ Converted key API routes to use the new auth pattern
+- ✅ Created RLS policy for temporary blueprint questions
+- ✅ Fixed client-side component fetch calls
+- ✅ Added service role client for specific operations that require bypassing RLS
 
 ## Help and Support
 

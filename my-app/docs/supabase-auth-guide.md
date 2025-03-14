@@ -13,6 +13,33 @@ Our authentication system uses Supabase's cookie-based auth flow for Next.js app
 3. **Client Utilities**: Create authenticated Supabase clients for client components
 4. **Route Handlers**: Wrappers for API routes to ensure authentication
 
+## Security Best Practices
+
+### Always Use `getUser()` for Authentication Decisions
+
+When checking if a user is authenticated or getting user data for authorization decisions, **always** use `supabase.auth.getUser()` instead of `getSession()` or `onAuthStateChange()` events.
+
+```typescript
+// CORRECT: Use getUser() for authentication decisions
+const {
+  data: { user },
+} = await supabase.auth.getUser();
+if (user) {
+  // User is authenticated, proceed with protected operations
+}
+
+// INCORRECT: Don't use getSession() for auth decisions
+const {
+  data: { session },
+} = await supabase.auth.getSession();
+if (session?.user) {
+  // This data might not be authentic!
+  // Don't rely on this for security decisions
+}
+```
+
+The `getUser()` method verifies the user's identity with the Supabase Auth server, while `getSession()` only reads from local storage/cookies without verification.
+
 ## Usage Guide
 
 ### Client-Side Authentication
@@ -119,6 +146,7 @@ Our middleware:
 2. Include `credentials: 'include'` in all fetch calls to APIs
 3. Use the route handlers for new API endpoints to ensure consistent authentication
 4. Remember that middleware only runs on matched routes (see `middleware.ts` for configuration)
+5. Never use `getSession()` data directly for sensitive operations; always verify with `getUser()`
 
 ## Troubleshooting
 
