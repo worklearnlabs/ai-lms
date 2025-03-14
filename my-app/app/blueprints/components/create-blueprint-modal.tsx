@@ -1728,22 +1728,43 @@ export function CreateBlueprintModal({
       if (descriptionUpdated && blueprintId && (questionsData.description || questionsData.blueprint_description)) {
         try {
           console.log('Updating blueprint details in database');
+          
+          // Prepare a more complete update payload with required fields
+          const updatePayload = {
+            details: questionsData.description || questionsData.blueprint_description,
+            // Include these essential fields to ensure the API accepts the update
+            title: title || questionsData.title || questionsData.blueprint_title || "Draft Blueprint",
+            prompt: prompt, // Include the current prompt
+            // Don't change the temporary status
+            is_temporary: true
+          };
+          
+          console.log('Blueprint update payload:', updatePayload);
+          
           const updateResponse = await fetch(`/api/blueprints/${blueprintId}`, {
             method: 'PATCH',
             headers: {
               'Content-Type': 'application/json',
-              'Cache-Control': 'no-cache'
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              'Pragma': 'no-cache'
             },
             credentials: 'include',
-            body: JSON.stringify({
-              details: questionsData.description || questionsData.blueprint_description
-            })
+            body: JSON.stringify(updatePayload)
           });
           
           if (updateResponse.ok) {
             console.log('Successfully updated blueprint details');
           } else {
-            console.error('Failed to update blueprint details:', await updateResponse.text());
+            const errorText = await updateResponse.text();
+            console.error('Failed to update blueprint details:', errorText);
+            
+            // Try to parse the error for more details
+            try {
+              const errorJson = JSON.parse(errorText);
+              console.error('Error details:', errorJson);
+            } catch {
+              // If parsing fails, just log the text
+            }
           }
         } catch (error) {
           console.error('Error updating blueprint details:', error);
