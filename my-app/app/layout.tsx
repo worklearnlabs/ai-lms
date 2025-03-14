@@ -20,7 +20,7 @@ interface ExtendedWindow extends Window {
 }
 
 export const metadata: Metadata = {
-  title: "Adaptive Learning System",
+  title: "Work Learn Labs",
   description: "A personalized learning platform",
 }
 

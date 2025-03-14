@@ -26,7 +26,7 @@ export default function LoginPage() {
           <div className="bg-primary text-primary-foreground flex size-6 items-center justify-center rounded-md">
             <GalleryVerticalEnd className="size-4" />
           </div>
-          Adaptive Learning System
+          Work Learn Labs
         </Link>
         <LoginForm />
       </div>

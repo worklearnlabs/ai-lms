@@ -4,32 +4,33 @@ This document catalogs all SQL scripts that have been manually executed in the S
 
 ## Scripts Overview
 
-| Current Script Name                              | Suggested Name                     | Purpose                                                             | Last Updated |
-| ------------------------------------------------ | ---------------------------------- | ------------------------------------------------------------------- | ------------ |
-| Blueprint Questions Table Structure and Policies | blueprint_questions_schema         | Define the blueprint_questions table structure and its RLS policies | TBD          |
-| Manage Temporary Blueprints                      | temporary_blueprints_management    | Scripts for handling temporary blueprints creation and cleanup      | TBD          |
-| Blueprints Policy Management                     | blueprints_rls_policies            | Define and maintain RLS policies for the blueprints table           | TBD          |
-| Untitled query                                   | blueprint_questions_rls_policies   | Create RLS policies for the blueprint_questions table               | TBD          |
-| Blueprint Questions Store Function               | blueprint_questions_store_function | Create a stored procedure to safely store blueprint questions       | TBD          |
-| Execute SQL Function                             | execute_sql_function               | Create a stored procedure to execute arbitrary SQL                  | TBD          |
-| Allow inserts for development/testing            | development_testing_permissions    | Grant additional permissions for development/testing environments   | TBD          |
-| Blueprint Questions Table                        | blueprint_questions_table_creation | Create the blueprint_questions table                                | TBD          |
-| RLS Policy for Reasoning Messages                | reasoning_messages_rls             | RLS policies for the reasoning_messages table                       | TBD          |
-| Reasoning Sessions RLS Policy                    | reasoning_sessions_rls             | RLS policies for the reasoning_sessions table                       | TBD          |
-| Blueprint Comments RLS Policies                  | blueprint_comments_rls             | RLS policies for blueprint comments                                 | TBD          |
-| Blueprint Subtasks RLS Policies                  | blueprint_subtasks_rls             | RLS policies for blueprint subtasks                                 | TBD          |
-| Blueprint Steps RLS Policies                     | blueprint_steps_rls                | RLS policies for blueprint steps                                    | TBD          |
-| Blueprints RLS Policies                          | blueprints_rls_main                | Main RLS policies for the blueprints table                          | 2025-03-13   |
-| Enable Row-Level Security for Tables             | enable_rls_all_tables              | Enable RLS on all blueprint-related tables                          | TBD          |
-| Blueprint Content Migration Function             | content_migration_function         | Function to migrate blueprint content from old to new schema        | TBD          |
-| Create reasoning_message table                   | reasoning_message_table_creation   | Create the table for storing reasoning messages                     | TBD          |
-| Reasoning Sessions Table                         | reasoning_sessions_table_creation  | Create the table for reasoning sessions                             | TBD          |
-| Blueprint Comments Table                         | blueprint_comments_table_creation  | Create the blueprint comments table                                 | TBD          |
-| Blueprint Subtasks Table                         | blueprint_subtasks_table_creation  | Create the blueprint subtasks table                                 | TBD          |
-| Blueprint Steps Table                            | blueprint_steps_table_creation     | Create the blueprint steps table                                    | TBD          |
-| Add Missing Columns to Blueprints Table          | blueprints_table_updates           | Add new columns to existing blueprints table                        | TBD          |
-| Retrieve Enum Types and Values                   | enum_types_retrieval               | Script to retrieve enum types and their values                      | TBD          |
-| Enum Types for Application States                | application_states_enums           | Define enum types for application states                            | TBD          |
+| Current Script Name                              | Suggested Name                       | Purpose                                                                               | Last Updated |
+| ------------------------------------------------ | ------------------------------------ | ------------------------------------------------------------------------------------- | ------------ |
+| Blueprint Questions Table Structure and Policies | blueprint_questions_schema           | Define the blueprint_questions table structure and its RLS policies                   | TBD          |
+| Manage Temporary Blueprints                      | temporary_blueprints_management      | Scripts for handling temporary blueprints creation and cleanup                        | TBD          |
+| Blueprints Policy Management                     | blueprints_rls_policies              | Define and maintain RLS policies for the blueprints table                             | TBD          |
+| Untitled query                                   | blueprint_questions_rls_policies     | Create RLS policies for the blueprint_questions table                                 | TBD          |
+| Blueprint Questions Store Function               | blueprint_questions_store_function   | Create a stored procedure to safely store blueprint questions                         | TBD          |
+| Execute SQL Function                             | execute_sql_function                 | Create a stored procedure to execute arbitrary SQL                                    | TBD          |
+| Allow inserts for development/testing            | development_testing_permissions      | Grant additional permissions for development/testing environments                     | TBD          |
+| Blueprint Questions Table                        | blueprint_questions_table_creation   | Create the blueprint_questions table                                                  | TBD          |
+| RLS Policy for Reasoning Messages                | reasoning_messages_rls               | RLS policies for the reasoning_messages table                                         | TBD          |
+| Reasoning Sessions RLS Policy                    | reasoning_sessions_rls               | RLS policies for the reasoning_sessions table                                         | TBD          |
+| Blueprint Comments RLS Policies                  | blueprint_comments_rls               | RLS policies for blueprint comments                                                   | TBD          |
+| Blueprint Subtasks RLS Policies                  | blueprint_subtasks_rls               | RLS policies for blueprint subtasks                                                   | TBD          |
+| Blueprint Steps RLS Policies                     | blueprint_steps_rls                  | RLS policies for blueprint steps                                                      | TBD          |
+| Blueprints RLS Policies                          | blueprints_rls_main                  | Main RLS policies for the blueprints table                                            | 2025-03-13   |
+| Enable Row-Level Security for Tables             | enable_rls_all_tables                | Enable RLS on all blueprint-related tables                                            | TBD          |
+| Blueprint Content Migration Function             | content_migration_function           | Function to migrate blueprint content from old to new schema                          | TBD          |
+| Create reasoning_message table                   | reasoning_message_table_creation     | Create the table for storing reasoning messages                                       | TBD          |
+| Reasoning Sessions Table                         | reasoning_sessions_table_creation    | Create the table for reasoning sessions                                               | TBD          |
+| Blueprint Comments Table                         | blueprint_comments_table_creation    | Create the blueprint comments table                                                   | TBD          |
+| Blueprint Subtasks Table                         | blueprint_subtasks_table_creation    | Create the blueprint subtasks table                                                   | TBD          |
+| Blueprint Steps Table                            | blueprint_steps_table_creation       | Create the blueprint steps table                                                      | TBD          |
+| Add Missing Columns to Blueprints Table          | blueprints_table_updates             | Add new columns to existing blueprints table                                          | TBD          |
+| Retrieve Enum Types and Values                   | enum_types_retrieval                 | Script to retrieve enum types and their values                                        | TBD          |
+| Enum Types for Application States                | application_states_enums             | Define enum types for application states                                              | TBD          |
+| Temporary Blueprint Questions Policy             | temporary_blueprint_questions_policy | Create RLS policy to allow operations on blueprint questions for temporary blueprints | 2025-03-25   |
 
 ## Script Contents
 
@@ -666,6 +667,31 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- Secure the function - only allow it to be executed by service roles
 REVOKE ALL ON FUNCTION public.execute_sql(text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.execute_sql(text) TO service_role;
+```
+
+### temporary_blueprint_questions_policy
+
+```sql
+-- First, check if the policy already exists and drop it if it does
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT FROM pg_policies
+        WHERE tablename = 'blueprint_questions' AND policyname = 'allow_temporary_blueprint_questions'
+    ) THEN
+        DROP POLICY allow_temporary_blueprint_questions ON public.blueprint_questions;
+    END IF;
+END
+$$;
+
+-- Create policy to allow operations on questions for temporary blueprints
+CREATE POLICY allow_temporary_blueprint_questions ON public.blueprint_questions
+    USING (blueprint_id IN (SELECT id FROM public.blueprints WHERE is_temporary = true))
+    WITH CHECK (blueprint_id IN (SELECT id FROM public.blueprints WHERE is_temporary = true));
+
+-- Add a comment explaining the policy
+COMMENT ON POLICY allow_temporary_blueprint_questions ON public.blueprint_questions IS
+    'Allows operations on blueprint questions for temporary blueprints without requiring authentication';
 ```
 
 ## Maintenance Guidelines

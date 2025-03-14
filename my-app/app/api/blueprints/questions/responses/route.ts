@@ -1,12 +1,27 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createRouteHandler } from '@/utils/route-handlers';
+import { createClient } from '@supabase/supabase-js';
+import { Database } from '@/types/supabase';
 
 // Define schema for POST request
 const SaveResponsesSchema = z.object({
   blueprint_id: z.string().uuid(),
   responses: z.record(z.string(), z.string()), // Map of question id to response
 });
+
+// Create a service role client for admin operations
+function getServiceRoleClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  
+  if (!supabaseServiceKey) {
+    console.error('SUPABASE_SERVICE_ROLE_KEY is not set. Cannot create service role client.');
+    return null;
+  }
+  
+  return createClient<Database>(supabaseUrl, supabaseServiceKey);
+}
 
 /**
  * GET /api/blueprints/questions/responses?blueprint_id={id}
@@ -132,10 +147,18 @@ export const POST = createRouteHandler(
         );
       }
       
+      // Determine if we need to use the service role client (for temporary blueprints or if RLS might block)
+      const shouldUseServiceRole = isTemporaryBlueprint || !user;
+      const dbClient = shouldUseServiceRole ? getServiceRoleClient() || supabase : supabase;
+      
+      if (shouldUseServiceRole) {
+        console.log(`Using service role client for ${isTemporaryBlueprint ? 'temporary' : 'anonymous'} blueprint`);
+      }
+      
       // Now handle the actual storage operation
       
       // Check if the record exists
-      const { data: existingData, error: fetchError } = await supabase
+      const { data: existingData, error: fetchError } = await dbClient
         .from('blueprint_questions')
         .select('id, responses, questions')
         .eq('blueprint_id', blueprint_id)
@@ -153,7 +176,7 @@ export const POST = createRouteHandler(
         // Update existing record
         const updatedResponses = { ...existingData.responses, ...responses };
         
-        const { data: updatedData, error: updateError } = await supabase
+        const { data: updatedData, error: updateError } = await dbClient
           .from('blueprint_questions')
           .update({
             responses: updatedResponses,
@@ -181,21 +204,34 @@ export const POST = createRouteHandler(
         // No record found - create one
         console.log(`No questions record found for blueprint ${blueprint_id}, creating new record`);
         
-        const { data: newRecord, error: createError } = await supabase
+        const insertData = {
+          blueprint_id: blueprint_id,
+          questions: [], // Empty questions array initially
+          responses: responses, // Save the current responses
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+        
+        // If we have a user and this isn't temporary, add the user_id
+        if (user && !isTemporaryBlueprint) {
+          // @ts-ignore - We're adding this dynamically if the schema supports it
+          insertData.user_id = user.id;
+        }
+        
+        const { data: newRecord, error: createError } = await dbClient
           .from('blueprint_questions')
-          .insert({
-            blueprint_id: blueprint_id,
-            questions: [], // Empty questions array initially
-            responses: responses, // Save the current responses
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-            // Remove user_id field as it doesn't exist in the blueprint_questions table
-          })
+          .insert(insertData)
           .select()
           .single();
           
         if (createError) {
           console.error('Error creating questions record:', createError);
+          
+          // If we're still getting RLS errors even with the service role, try direct DB access
+          if (createError.code === '42501' && shouldUseServiceRole) {
+            console.error('Still hitting RLS issues even with service role - check Supabase setup');
+          }
+          
           return NextResponse.json(
             { error: 'Failed to create questions record', details: createError.message },
             { status: 500 }
