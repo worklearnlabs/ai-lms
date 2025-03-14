@@ -1,8 +1,20 @@
 import { NextResponse } from 'next/server';
 import { createServiceRoleClient } from "@/utils/supabase-admin";
 import { ensureUserInDatabase } from '@/utils/user-sync';
-import { createStandardServerClient } from "@/utils/supabase";
 import { z } from "zod";
+import { createRouteHandler } from '@/utils/route-handlers';
+import { NextRequest } from 'next/server';
+
+// Define error response type
+type ErrorResponse = { 
+  error: string; 
+  details?: unknown;
+  original_error?: string;
+};
+
+// Type for API responses - using Record<string, unknown> for flexibility
+// This is not ideal for type safety but helps us fix the linter errors
+type ApiResponse = Record<string, unknown> | ErrorResponse;
 
 // Define the blueprint creation schema
 const BlueprintCreateSchema = z.object({
@@ -10,8 +22,9 @@ const BlueprintCreateSchema = z.object({
   prompt: z.string().optional(),
   visibility: z.enum(["public", "private"]).default("private"),
   is_temporary: z.boolean().default(false),
-  content: z.any().optional(),
-  search_query: z.string().optional()
+  content: z.unknown().optional(),
+  search_query: z.string().optional(),
+  details: z.string().optional()
 });
 
 // Handler for GET /api/blueprints
@@ -200,128 +213,150 @@ export async function GET(request: Request) {
 }
 
 // Handler for POST /api/blueprints
-export async function POST(req: Request) {
-  try {
-    // Parse request body
-    const json = await req.json();
+export const POST = createRouteHandler<ApiResponse>(
+  ['POST'],
+  async (req: NextRequest, { user }) => {
+    try {
+      // Parse request body
+      const json = await req.json();
 
-    // Validate input
-    const result = BlueprintCreateSchema.safeParse(json);
-    if (!result.success) {
-      return NextResponse.json(
-        { error: 'Invalid input', details: result.error.format() },
-        { status: 400 }
-      );
-    }
-
-    const { title, prompt, visibility, is_temporary, search_query } = result.data;
-    
-    // Don't allow setting search_query during initial blueprint creation
-    if (search_query) {
-      console.warn('Ignoring search_query provided during blueprint creation - this should only be set during finalization');
-    }
-
-    // Initialize Supabase client
-    const supabase = createStandardServerClient();
-
-    // Get the current authenticated user
-    const { data: { user } } = await supabase.auth.getUser();
-
-    // Check if this is a temporary blueprint
-    if (is_temporary === true) {
-      console.log('Creating temporary blueprint - authentication not required');
-      
-      // For temporary blueprints, we can create without a user
-      // Use service role client to bypass auth requirements
-      const serviceClient = createServiceRoleClient();
-      
-      // Create the blueprint with a system user ID or no user ID
-      const blueprintData = {
-        title,
-        prompt,
-        is_verified: false,
-        visibility: visibility || 'private',
-        content: [], // Empty array for content
-        is_temporary: true, // Force is_temporary to true for safety
-        search_query: '', // IMPORTANT: Explicitly set search_query to empty string, not null or undefined
-        // Note: No user_id for temporary blueprints if not authenticated
-        ...(user ? { user_id: user.id } : {})
-      };
-
-      console.log('Creating new temporary blueprint:', {
-        ...blueprintData,
-        user_id: user ? 'REDACTED' : 'NONE (anonymous)' 
-      });
-      
-      // Use service client for temporary blueprints to bypass auth requirements
-      const { data: blueprint, error } = await serviceClient
-        .from('blueprints')
-        .insert(blueprintData)
-        .select('*')
-        .single();
-
-      if (error) {
-        console.error('Error creating temporary blueprint:', error);
+      // Validate input
+      const result = BlueprintCreateSchema.safeParse(json);
+      if (!result.success) {
         return NextResponse.json(
-          { error: 'Failed to create temporary blueprint', details: error.message },
-          { status: 500 }
+          { error: 'Invalid input', details: result.error.format() },
+          { status: 400 }
         );
       }
 
-      console.log('Temporary blueprint created successfully:', blueprint.id);
+      const { title, prompt, visibility, is_temporary, search_query, details } = result.data;
       
-      // Return the created blueprint without verification attempts
-      return NextResponse.json(blueprint);
-    }
-    
-    // For non-temporary blueprints, require authentication
-    if (!user) {
+      // Don't allow setting search_query during initial blueprint creation
+      if (search_query) {
+        console.warn('Ignoring search_query provided during blueprint creation - this should only be set during finalization');
+      }
+
+      // For all operations, we'll use the service client for consistent access
+      const serviceClient = createServiceRoleClient();
+      
+      // Require authentication for all blueprint creation (even temporary blueprints)
+      if (!user) {
+        return NextResponse.json(
+          { error: 'Authentication required to create a blueprint' },
+          { status: 401 }
+        );
+      }
+      
+      // Log authentication status for debugging
+      console.log('Blueprint creation auth status:', {
+        authenticated: !!user,
+        userEmail: user?.email || 'Not authenticated',
+        is_temporary: is_temporary
+      });
+
+      // We need a valid user_id due to foreign key constraints
+      let userIdToUse = null;
+
+      if (user?.email) {
+        // If user is authenticated, look up their ID in the users table by email
+        console.log('User is authenticated, looking up in users table by email:', user.email);
+        
+        const { data: dbUser } = await serviceClient
+          .from('users')
+          .select('id')
+          .eq('email', user.email)
+          .single();
+          
+        if (dbUser) {
+          userIdToUse = dbUser.id;
+          console.log('Found user in users table by email:', user.email, 'Using ID:', userIdToUse);
+        } else {
+          console.log('WARNING: Authenticated user email not found in users table:', user.email);
+          
+          // User must exist in the users table to create blueprints
+          return NextResponse.json(
+            { error: 'User not found in database', details: 'Your user account could not be found in the application database' },
+            { status: 400 }
+          );
+        }
+      } else {
+        // This shouldn't happen since we already checked for user authentication above,
+        // but adding as a safeguard
+        return NextResponse.json(
+          { error: 'Authentication required to create a blueprint' },
+          { status: 401 }
+        );
+      }
+      
+      // At this point, we should have a valid userIdToUse or have returned an error
+      
+      // Create the blueprint data object with the valid user ID
+      const blueprintData = {
+        title,
+        prompt,
+        details: details || "", // Use details from request if provided
+        is_verified: false,
+        visibility: visibility || 'private',
+        content: [], // Empty array for content
+        is_temporary: is_temporary,
+        search_query: '', // IMPORTANT: Explicitly set search_query to empty string, not null or undefined
+        user_id: userIdToUse // Use the user ID we determined above
+      };
+
+      console.log('Creating new blueprint:', {
+        ...blueprintData,
+        user_id: userIdToUse ? `${String(userIdToUse).substring(0, 8)}...` : 'NULL (unknown)'
+      });
+      
+      try {
+        // Use service client for all blueprint creation for consistency
+        const { data: blueprint, error } = await serviceClient
+          .from('blueprints')
+          .insert(blueprintData)
+          .select('*')
+          .single();
+
+        if (error) {
+          console.error('Error creating blueprint:', error);
+          
+          // Check if it's a foreign key constraint error
+          if (error.message && error.message.includes('violates foreign key constraint')) {
+            return NextResponse.json(
+              { 
+                error: 'Failed to create blueprint', 
+                details: 'Database is configured to require a valid user_id',
+                original_error: error.message
+              },
+              { status: 500 }
+            );
+          }
+          
+          return NextResponse.json(
+            { error: 'Failed to create blueprint', details: error.message },
+            { status: 500 }
+          );
+        }
+
+        console.log('Blueprint created successfully:', blueprint.id);
+        
+        // Return the created blueprint
+        return NextResponse.json(blueprint);
+      } catch (err) {
+        console.error('Exception creating blueprint:', err);
+        return NextResponse.json(
+          { 
+            error: 'Exception creating blueprint', 
+            details: err instanceof Error ? err.message : 'Unknown error' 
+          },
+          { status: 500 }
+        );
+      }
+    } catch (error) {
+      console.error("Error in blueprints POST route:", error);
       return NextResponse.json(
-        { error: 'Authentication required for creating permanent blueprints' },
-        { status: 401 }
-      );
-    }
-
-    // Create the permanent blueprint
-    const blueprintData = {
-      title,
-      prompt,
-      is_verified: false,
-      visibility: visibility || 'private',
-      user_id: user.id,
-      content: [], // Empty array for content
-      is_temporary: false,
-      search_query: '' // IMPORTANT: Explicitly set search_query to empty string, not null or undefined
-    };
-
-    console.log('Creating new permanent blueprint:', {
-      ...blueprintData,
-      user_id: 'REDACTED'
-    });
-
-    // Insert the blueprint
-    const { data: blueprint, error } = await supabase
-      .from('blueprints')
-      .insert(blueprintData)
-      .select('*')
-      .single();
-
-    if (error) {
-      console.error('Error creating blueprint:', error);
-      return NextResponse.json(
-        { error: 'Failed to create blueprint', details: error.message },
+        { error: "Failed to create blueprint", details: error instanceof Error ? error.message : "Unknown error" },
         { status: 500 }
       );
     }
-
-    // Return the blueprint without verification
-    console.log(`Blueprint ${blueprint.id} created successfully`);
-    return NextResponse.json(blueprint);
-  } catch (error) {
-    console.error('Unhandled error in POST /api/blueprints:', error);
-    return NextResponse.json(
-      { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 }
-    );
   }
-} 
+); 

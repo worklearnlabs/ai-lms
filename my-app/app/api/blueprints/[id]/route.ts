@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { createStandardServerClient } from '@/utils/supabase';
 import { updateBlueprint, regenerateBlueprint } from "@/utils/models";
 import { withRouteAuth } from '@/utils/route-handlers';
+import { NextRequest } from 'next/server';
 
 // Define validation schema for PATCH requests
 const BlueprintUpdateSchema = z.object({
@@ -22,7 +23,7 @@ const BlueprintUpdateSchema = z.object({
 
 // GET endpoint to fetch a specific blueprint by ID
 export async function GET(
-  req: Request, 
+  req: NextRequest, 
   context: { params: { id: string } }
 ) {
   try {
@@ -155,7 +156,7 @@ export async function GET(
 }
 
 // Handler for PUT /api/blueprints/[id]
-export async function PUT(request: Request, context: { params: { id: string } }) {
+export async function PUT(request: NextRequest, context: { params: { id: string } }) {
   try {
     // Properly await the params object
     const params = await context.params;
@@ -183,7 +184,7 @@ export async function PUT(request: Request, context: { params: { id: string } })
 }
 
 // Handler for POST /api/blueprints/[id]/regenerate
-export async function POST(request: Request, context: { params: { id: string } }) {
+export async function POST(request: NextRequest, context: { params: { id: string } }) {
   try {
     // Properly await the params object
     const params = await context.params;
@@ -219,7 +220,7 @@ export async function POST(request: Request, context: { params: { id: string } }
 
 // PATCH endpoint to update a blueprint
 export async function PATCH(
-  req: Request,
+  req: NextRequest,
   context: { params: { id: string } }
 ) {
   try {
@@ -329,7 +330,7 @@ export async function PATCH(
 
 // DELETE endpoint to delete a blueprint
 export async function DELETE(
-  req: Request,
+  req: NextRequest,
   context: { params: { id: string } }
 ) {
   try {
@@ -399,7 +400,7 @@ export async function DELETE(
 }
 
 // Handler for HEAD /api/blueprints/[id]
-export async function HEAD(request: Request, context: { params: { id: string } }) {
+export async function HEAD(request: NextRequest, context: { params: { id: string } }) {
   try {
     // Properly await the params object
     const params = await context.params;

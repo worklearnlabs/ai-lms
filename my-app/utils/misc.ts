@@ -27,6 +27,11 @@ export function formatRelativeTime(date: Date): string {
   const now = new Date()
   const diffInMs = now.getTime() - date.getTime()
   
+  // Handle invalid or future dates (negative diff)
+  if (isNaN(date.getTime()) || diffInMs < 0) {
+    return "just now";
+  }
+  
   const diffInSecs = Math.floor(diffInMs / 1000)
   if (diffInSecs < 60) return `${diffInSecs} second${diffInSecs === 1 ? '' : 's'} ago`
   

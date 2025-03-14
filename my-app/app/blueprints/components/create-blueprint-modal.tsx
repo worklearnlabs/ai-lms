@@ -1,8 +1,19 @@
 "use client"
+"use client"
 
 import { useState, useEffect, useRef } from "react"
 import { toast } from "sonner"
-import { ArrowRight, ArrowLeft, Loader2 } from "lucide-react"
+import { 
+  ArrowLeft, 
+  ArrowRight, 
+  Check, 
+  ChevronDown,
+  ChevronUp,
+  Copy, 
+  Loader2, 
+  RefreshCw,
+  Wand2
+} from "lucide-react"
 
 import {
   Dialog,
@@ -18,6 +29,16 @@ import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { cn } from "@/utils/utils"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+
+// Add this import at the top of the file
+import { post } from '@/utils/fetch-wrapper';
 
 interface CreateBlueprintModalProps {
   triggerButton?: React.ReactNode;
@@ -62,17 +83,20 @@ export function CreateBlueprintModal({
   onOpenChange: externalOnOpenChange,
   temporaryBlueprintId
 }: CreateBlueprintModalProps) {
-  const [isLoading, setIsLoading] = useState(false)
-  const [internalIsOpen, setInternalIsOpen] = useState(false)
-  const [title, setTitle] = useState("")
-  const [prompt, setPrompt] = useState("")
-  const [description, setDescription] = useState("")
-  const [currentStep, setCurrentStep] = useState<'prompt' | 'conversation' | 'review'>('prompt')
-  const [currentResponse, setCurrentResponse] = useState("")
-  
-  // Add state for tracking auto-saving status and a ref for the timeout
+  // Declare state variables
+  const [internalIsOpen, setInternalIsOpen] = useState(false);
+  const [currentStep, setCurrentStep] = useState<'prompt' | 'conversation' | 'reason' | 'complete' | 'review'>('prompt');
+  const [isLoading, setIsLoading] = useState(false);
+  const [prompt, setPrompt] = useState("");
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [currentResponse, setCurrentResponse] = useState("");
   const [autoSaving, setAutoSaving] = useState(false);
   const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [initialPrompt, setInitialPrompt] = useState("");
+  const [isExistingBlueprint, setIsExistingBlueprint] = useState(false);
+  const [promptChanged, setPromptChanged] = useState(false);
+  const [answerLength, setAnswerLength] = useState<'short' | 'medium' | 'long'>('medium');
   
   // Declare tempBlueprintId state variable here
   const [tempBlueprintId, setTempBlueprintId] = useState<string | null>(temporaryBlueprintId || null);
@@ -150,12 +174,47 @@ export function CreateBlueprintModal({
   // Add this near the other state declarations
   const [debugResults, setDebugResults] = useState<string>("");
   
-  // Fetch dynamic examples when the modal is opened
+  // State for confirmation dialog
+  const [showConfirmation, setShowConfirmation] = useState(false);
+  
+  // Add state for delete confirmation dialog
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
+  
+  // State for copy button
+  const [hasCopied, setHasCopied] = useState(false);
+  
+  // Add state to track if debug panel is open
+  const [isDebugOpen, setIsDebugOpen] = useState(false);
+  
+  // Function to copy debug results to clipboard
+  const copyDebugToClipboard = () => {
+    if (!debugResults) return;
+    
+    navigator.clipboard.writeText(debugResults)
+      .then(() => {
+        setHasCopied(true);
+        toast.success("Debug data copied to clipboard");
+        
+        // Reset the copied state after 2 seconds
+        setTimeout(() => {
+          setHasCopied(false);
+        }, 2000);
+      })
+      .catch((error) => {
+        console.error("Failed to copy debug data:", error);
+        toast.error("Failed to copy debug data");
+      });
+  };
+  
+  // Fetch dynamic examples when the modal is opened (only for new blueprints)
   useEffect(() => {
     if (isOpen) {
-      fetchDynamicExamples();
+      // Only fetch examples if it's not an existing blueprint
+      if (!isExistingBlueprint) {
+        fetchDynamicExamples();
+      }
     }
-  }, [isOpen]);
+  }, [isOpen, isExistingBlueprint]);
   
   // Function to fetch dynamic examples from our API
   const fetchDynamicExamples = async () => {
@@ -225,6 +284,8 @@ export function CreateBlueprintModal({
       setQuestions([]);
       setQuestionStatus({});
       setResponses({});
+      setDebugResults(""); // Clear debug results
+      setIsDebugOpen(false); // Ensure debug panel is closed when modal is closed
     }
   }, [isOpen]);
 
@@ -291,6 +352,7 @@ export function CreateBlueprintModal({
             search_query?: string;
             description?: string;
             details?: string;
+            is_temporary?: boolean;
             content?: {
               questions?: Array<{
                 id: number;
@@ -312,6 +374,22 @@ export function CreateBlueprintModal({
             // Set description from either field, prioritizing 'description' if available
             setDescription(data.description || data.details || "");
             
+            // Store the initial prompt to track changes later
+            setInitialPrompt(data.prompt || "");
+            
+            // Mark this as an existing blueprint
+            setIsExistingBlueprint(true);
+            setPromptChanged(false);
+            
+            // Force navigation to conversation step for existing blueprints
+            // This implements the requirement to go to the second slide for existing blueprints
+            console.log("Navigating to conversation step for existing blueprint");
+            
+            // Use a small timeout to ensure this happens after all state is set
+            setTimeout(() => {
+              setCurrentStep('conversation');
+            }, 50);
+            
             // Log the origin information to help with debugging
             console.log("Loaded blueprint details:", {
               title: data.title,
@@ -320,7 +398,8 @@ export function CreateBlueprintModal({
               hasSearchQuery: !!data.search_query,
               hasQuestions: !!(data.content && data.content.questions),
               hasResponses: !!(data.content && data.content.responses),
-              responseCount: data.content?.responses ? Object.keys(data.content.responses).length : 0
+              responseCount: data.content?.responses ? Object.keys(data.content.responses).length : 0,
+              is_temporary: data.is_temporary
             });
             
             // Show a toast to inform the user we've loaded their draft
@@ -339,8 +418,20 @@ export function CreateBlueprintModal({
                 prerequisites: data.prerequisites
               });
               
-              // If we have final data, move to the review step
-              setCurrentStep('review');
+              // We'll delay this navigation to ensure we go to the conversation step first
+              // then only move to review after a brief delay
+              setTimeout(() => {
+                // Only navigate to review if we're already on the conversation step
+                if (currentStep === 'conversation') {
+                  setCurrentStep('review');
+                }
+              }, 300);
+            }
+            
+            // For temporary blueprints with questions, go to the conversation step
+            else if (data.is_temporary && data.content && data.content.questions && data.content.questions.length > 0) {
+              console.log("Temporary blueprint has questions - moving to conversation step");
+              setCurrentStep('conversation');
             }
             
             // If there are questions and responses in the content, load them
@@ -589,7 +680,12 @@ export function CreateBlueprintModal({
           
           // Check for questions data for this blueprint
           try {
-            console.log("%c[DEBUG] Fetching questions data", "background: #8e44ad; color: white; padding: 2px 4px; border-radius: 2px;", temporaryBlueprintId);
+            console.log("%c[DEBUG] Fetching questions data", "background: #8e44ad; color: white; padding: 2px 4px; border-radius: 2px;", {
+              blueprint_id: temporaryBlueprintId,
+              current_questions: questions.length,
+              current_responses: Object.keys(responses).length,
+              timestamp: new Date().toISOString()
+            });
             
             const questionsResponse = await fetch(`/api/blueprints/questions/responses?blueprint_id=${temporaryBlueprintId}`, {
               method: 'GET',
@@ -597,7 +693,8 @@ export function CreateBlueprintModal({
               headers: {
                 'Cache-Control': 'no-cache, no-store, must-revalidate',
                 'Pragma': 'no-cache',
-                'X-Requested-With': 'XMLHttpRequest'
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-Debug-Client': 'create-blueprint-modal-load'
               }
             });
             
@@ -609,26 +706,77 @@ export function CreateBlueprintModal({
             
             if (questionsResponse.ok) {
               const questionsData = await questionsResponse.json();
-              console.log("Loaded additional questions data:", questionsData);
+              console.log("%c[DEBUG] Loaded questions data:", "background: #8e44ad; color: white; padding: 2px 4px; border-radius: 2px;", {
+                data: questionsData,
+                has_questions: !!(questionsData.questions && Array.isArray(questionsData.questions)),
+                question_count: questionsData.questions ? questionsData.questions.length : 0,
+                has_responses: !!(questionsData.responses && typeof questionsData.responses === 'object'),
+                response_count: questionsData.responses ? Object.keys(questionsData.responses).length : 0
+              });
               
-              if (questionsData.questions && questionsData.questions.length > 0) {
+              // Only update questions if we actually got some from the API
+              if (questionsData.questions && Array.isArray(questionsData.questions) && questionsData.questions.length > 0) {
+                console.log(`[DEBUG] Setting ${questionsData.questions.length} questions from API`);
                 setQuestions(questionsData.questions);
                 
-                if (questionsData.responses) {
+                if (questionsData.responses && typeof questionsData.responses === 'object') {
+                  console.log(`[DEBUG] Setting ${Object.keys(questionsData.responses).length} responses from API`);
                   setResponses(questionsData.responses);
                   
                   // Parse the status from responses
                   const questionStatusMap: QuestionStatusMap = {};
                   questionsData.questions.forEach((question: { id: number }) => {
-                    questionStatusMap[question.id] = 
-                      questionsData.responses[question.id] ? "complete" : "pending";
+                    const hasResponse = !!questionsData.responses[question.id];
+                    questionStatusMap[question.id] = hasResponse ? "complete" : "pending";
+                    console.log(`[DEBUG] Question ${question.id} status: ${hasResponse ? "complete" : "pending"}`);
                   });
                   setQuestionStatus(questionStatusMap);
+                  
+                  // Find the first incomplete question, or default to the first question
+                  const firstIncompleteIndex = questionsData.questions.findIndex(
+                    (q: { id: number }) => !questionsData.responses[q.id]
+                  );
+                  
+                  const newActiveIndex = firstIncompleteIndex >= 0 ? firstIncompleteIndex : 0;
+                  console.log(`[DEBUG] Setting active question index to ${newActiveIndex}`);
+                  setActiveQuestionIndex(newActiveIndex);
+                  
+                  // Update current step to conversation if we have questions
+                  if (questionsData.questions.length > 0) {
+                    setCurrentStep('conversation');
+                    setIsExistingBlueprint(true);
+                  }
+                } else {
+                  console.log(`[DEBUG] No responses found or invalid format: ${typeof questionsData.responses}`);
+                  // Initialize empty responses if none were found
+                  setResponses({});
+                  
+                  // Set all questions to pending
+                  const newQuestionStatusMap: QuestionStatusMap = {};
+                  questionsData.questions.forEach((question: { id: number }) => {
+                    newQuestionStatusMap[question.id] = "pending";
+                  });
+                  setQuestionStatus(newQuestionStatusMap);
+                  setActiveQuestionIndex(0);
                 }
+              } else {
+                console.log(`[DEBUG] No questions found in API response or invalid format`);
               }
+            } else {
+              // Try to get the error details
+              let errorText = questionsResponse.statusText;
+              try {
+                errorText = await questionsResponse.text();
+              } catch (e) {
+                console.error("Failed to get error text:", e);
+              }
+              console.error("[DEBUG] Failed to fetch questions data:", {
+                status: questionsResponse.status,
+                error: errorText
+              });
             }
           } catch (questionsError) {
-            console.error("Error loading questions data:", questionsError);
+            console.error("[DEBUG] Error loading questions data:", questionsError);
             // Continue with what we have
           }
         } catch (error) {
@@ -650,10 +798,14 @@ export function CreateBlueprintModal({
     console.log("tempBlueprintId changed:", tempBlueprintId);
   }, [tempBlueprintId]);
 
-  // Utility function to check if a blueprint exists with fallbacks
-  // const checkBlueprintExists = async (blueprintId: string): Promise<boolean> => {
-  //   // ... removed complex checking logic
-  // };
+  // New effect: Ensure we navigate to conversation step for existing blueprints
+  // This acts as a safeguard to ensure we always navigate to slide 2 when loading an existing blueprint
+  useEffect(() => {
+    if (isExistingBlueprint && temporaryBlueprintId && !isLoading) {
+      console.log("Ensuring navigation to conversation step for existing blueprint");
+      setCurrentStep('conversation');
+    }
+  }, [isExistingBlueprint, temporaryBlueprintId, isLoading]);
 
   // Save a response to the database for a specific question with retry logic
   const saveResponseToDatabase = async (blueprintId: string, questionId: string, response: string): Promise<boolean> => {
@@ -847,7 +999,7 @@ export function CreateBlueprintModal({
       console.log('Final data before blueprint creation:', {
         title: finalData.title,
         search_query: finalData.search_query,
-        description: finalData.description,
+        description: finalData.description || description,
         prompt,
         contentKeys: Object.keys(content)
       });
@@ -856,7 +1008,7 @@ export function CreateBlueprintModal({
       const blueprintData = {
         title: finalData.title,
         ...(finalData.search_query ? { search_query: finalData.search_query } : {}), // Only include if defined
-        details: finalData.description,
+        details: finalData.description || description, // Use local description state as fallback
         prompt,
         content,
         complexity: finalData.complexity,
@@ -929,16 +1081,20 @@ export function CreateBlueprintModal({
       const generateData = {
         blueprint_id: tempBlueprintId,
         prompt,
+        description: description, // Include current description if available
         responses: { ...responses } // Use all collected responses
       };
       
       // Call the API to generate the final blueprint
       // This endpoint should use all responses to generate an improved search_query for research
       console.log("Calling finalize API to generate the refined search_query and other blueprint details");
+      console.log("Current description before finalize:", description);
       const response = await fetch('/api/blueprints/reason/finalize', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache'
         },
         body: JSON.stringify(generateData),
         credentials: 'include'
@@ -1083,6 +1239,13 @@ export function CreateBlueprintModal({
     
     try {
       if (currentStep === 'prompt') {
+        // Check if this is an existing blueprint with changes
+        if (isExistingBlueprint && promptChanged) {
+          // Show confirmation instead of proceeding directly
+          setShowConfirmation(true);
+          return;
+        }
+        
         await handleInitialPrompt();
       } else if (currentStep === 'conversation') {
         // First save the current response if there is one
@@ -1231,114 +1394,234 @@ export function CreateBlueprintModal({
   }, [temporaryBlueprintId]);
 
   // Add debug functionality
-  const debugBlueprint = async () => {
+  const debugBlueprint = async (forceRefresh = false) => {
+    // If there's no blueprint ID, show an error message
     if (!tempBlueprintId) {
       setDebugResults("No tempBlueprintId found");
+      setIsDebugOpen(true);
       return;
     }
     
-    setDebugResults(`Loading blueprint details for ID: ${tempBlueprintId}...`);
+    // If debug results are already shown and not forcing refresh, just toggle visibility
+    if (debugResults && !forceRefresh) {
+      setIsDebugOpen(!isDebugOpen);
+      return;
+    }
     
-    // Use GET instead of HEAD to get full blueprint details
+    // If we're forcing a refresh with existing results, don't toggle - just refresh
+    if (forceRefresh && debugResults) {
+      // Keep debug panel open, just refresh data
+      setDebugResults(`Refreshing blueprint details for ID: ${tempBlueprintId}...`);
+    } else {
+      // First time opening or no existing results
+      setDebugResults(`Loading comprehensive blueprint details for ID: ${tempBlueprintId}...`);
+      setIsDebugOpen(true); // Open the debug panel
+    }
+    
+    setIsLoading(true);
+    
     try {
-      // Fetch complete blueprint data from the API
-      const verifyResponse = await fetch(`/api/blueprints/${tempBlueprintId}`, {
+      // Fetch complete blueprint data from the API with timestamp to prevent caching
+      console.log(`[DEBUG] Fetching blueprint data for ID: ${tempBlueprintId}`);
+      const timestamp = Date.now();
+      const blueprintResponse = await fetch(`/api/blueprints/${tempBlueprintId}?t=${timestamp}`, {
         method: 'GET',
-        credentials: 'include'
+        credentials: 'include',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'X-Debug-Client': 'create-blueprint-modal'
+        }
       });
       
-      // Parse response data if available
-      let responseData = null;
-      try {
-        if (verifyResponse.status !== 204) { // Skip parsing empty responses
-          const contentType = verifyResponse.headers.get('content-type');
-          if (contentType && contentType.includes('application/json')) {
-            responseData = await verifyResponse.json();
-          } else {
-            responseData = await verifyResponse.text();
-          }
-        }
-      } catch (parseError) {
-        console.error("Failed to parse response:", parseError);
+      // Get blueprint data
+      let blueprintData = null;
+      if (blueprintResponse.ok) {
+        blueprintData = await blueprintResponse.json();
+        console.log(`[DEBUG] Successfully fetched blueprint data:`, blueprintData);
+      } else {
+        const errorText = await blueprintResponse.text();
+        console.error(`[DEBUG] Failed to fetch blueprint: ${blueprintResponse.status} ${blueprintResponse.statusText}`, errorText);
+        throw new Error(`Failed to fetch blueprint: ${blueprintResponse.status} ${blueprintResponse.statusText}`);
       }
       
-      // Check database directly
+      // Get questions and responses data with timestamp to prevent caching
+      console.log(`[DEBUG] Fetching questions and responses for blueprint ID: ${tempBlueprintId}`);
+      let questionsData = null;
+      try {
+        const questionsResponse = await fetch(`/api/blueprints/questions/responses?blueprint_id=${tempBlueprintId}&t=${timestamp}`, {
+          method: 'GET',
+          credentials: 'include',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'X-Debug-Client': 'create-blueprint-modal'
+          }
+        });
+        
+        if (questionsResponse.ok) {
+          questionsData = await questionsResponse.json();
+          console.log(`[DEBUG] Successfully fetched questions data:`, questionsData);
+        } else {
+          const errorText = await questionsResponse.text();
+          console.error(`[DEBUG] Failed to fetch questions: ${questionsResponse.status} ${questionsResponse.statusText}`, errorText);
+          questionsData = { 
+            error: `Failed to fetch questions: ${questionsResponse.status} ${questionsResponse.statusText}`,
+            errorDetails: errorText
+          };
+        }
+      } catch (questionsError) {
+        console.error("[DEBUG] Error fetching questions data:", questionsError);
+        questionsData = { 
+          error: "Error fetching questions data",
+          errorDetails: questionsError instanceof Error ? questionsError.message : String(questionsError)
+        };
+      }
+      
+      // Format the Q&A pairs for better readability
+      let formattedQA = {};
+      if (questionsData?.questions && Array.isArray(questionsData.questions)) {
+        console.log(`[DEBUG] Found ${questionsData.questions.length} questions in API response`);
+        formattedQA = questionsData.questions.map((q: { id: number; title: string; content: string }) => ({
+          id: q.id,
+          title: q.title,
+          question: q.content,
+          response: questionsData.responses?.[q.id] || "No response"
+        }));
+      } else {
+        console.log(`[DEBUG] No questions array found in API response:`, questionsData);
+        formattedQA = { 
+          error: "No questions array found in API response",
+          responseFormat: questionsData ? Object.keys(questionsData) : null
+        };
+      }
+      
+      // Check database directly if in development mode
       let dbDetails = null;
       try {
-        const dbResponse = await fetch(`/api/admin/debug/blueprint?id=${tempBlueprintId}`, {
+        console.log(`[DEBUG] Fetching raw DB data for blueprint ID: ${tempBlueprintId}`);
+        const dbResponse = await fetch(`/api/admin/debug/blueprint?id=${tempBlueprintId}&t=${timestamp}`, {
           method: 'GET',
           credentials: 'include'
         });
         
         if (dbResponse.ok) {
           dbDetails = await dbResponse.json();
+          console.log(`[DEBUG] Successfully fetched raw DB data`);
         } else {
+          console.log(`[DEBUG] Failed to fetch raw DB data: ${dbResponse.status}`);
           dbDetails = { 
             error: `Failed to fetch raw DB data: ${dbResponse.status}`, 
             note: "This is expected if you're not in development mode or don't have admin access" 
           };
         }
       } catch (dbError) {
-        console.error("Error fetching raw DB data:", dbError);
-        dbDetails = { error: "Error fetching raw DB data", message: dbError instanceof Error ? dbError.message : String(dbError) };
+        console.error("[DEBUG] Error fetching raw DB data:", dbError);
+        dbDetails = { 
+          error: "Error fetching raw DB data", 
+          message: dbError instanceof Error ? dbError.message : String(dbError) 
+        };
       }
       
-      // Gather debug information
+      // Gather comprehensive debug information
       const debugInfo = {
-        tempBlueprintId,
-        responseStatus: verifyResponse.status,
-        responseStatusText: verifyResponse.statusText,
-        responseHeaders: Object.fromEntries([...verifyResponse.headers.entries()]),
-        blueprint: responseData,
+        blueprint_id: tempBlueprintId,
+        blueprint_data: blueprintData,
+        questions_and_answers: formattedQA,
+        questions_response_data: questionsData, // Include the raw questions response
         raw_db_data: dbDetails,
-        important_fields: responseData ? {
-          search_query: responseData.search_query || "NOT SET",
-          search_query_type: responseData.search_query ? typeof responseData.search_query : "undefined/null",
-          search_query_length: responseData.search_query ? responseData.search_query.length : 0,
-          prompt: responseData.prompt ? responseData.prompt.substring(0, 50) + "..." : "NOT SET",
-          is_temporary: responseData.is_temporary,
-          visibility: responseData.visibility,
-          created_at: responseData.created_at,
-          updated_at: responseData.updated_at
+        important_fields: blueprintData ? {
+          title: blueprintData.title || "NOT SET",
+          search_query: blueprintData.search_query || "NOT SET",
+          search_query_type: blueprintData.search_query ? typeof blueprintData.search_query : "undefined/null",
+          search_query_length: blueprintData.search_query ? blueprintData.search_query.length : 0,
+          prompt: blueprintData.prompt ? blueprintData.prompt.substring(0, 50) + "..." : "NOT SET",
+          details: blueprintData.details ? blueprintData.details.substring(0, 50) + "..." : "NOT SET",
+          is_temporary: blueprintData.is_temporary,
+          visibility: blueprintData.visibility,
+          created_at: blueprintData.created_at,
+          updated_at: blueprintData.updated_at
         } : null,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        refreshed_at: forceRefresh ? new Date().toISOString() : null // Track when data was refreshed
       };
       
-      // Display debug info
+      // Display formatted debug info
       setDebugResults(JSON.stringify(debugInfo, null, 2));
       
-      if (verifyResponse.ok) {
-        console.log("Blueprint verification successful:", debugInfo);
-        
-        if (responseData?.search_query) {
-          toast.info("Blueprint search_query is SET", {
-            description: `Length: ${responseData.search_query.length} chars`
-          });
-        } else {
-          toast.info("Blueprint search_query is NOT SET", {
-            description: "This is expected during blueprint creation, before finalization"
-          });
-        }
-      } else {
-        console.warn("Blueprint verification failed:", debugInfo);
-        
-        if (verifyResponse.status === 404) {
-          toast.error("Blueprint not found", {
-            description: "The blueprint ID does not exist in the database. Creating a new temporary blueprint..."
-          });
-        } else {
-          toast.error(`Verification failed: ${verifyResponse.status}`, {
-            description: verifyResponse.statusText || "Unknown error"
-          });
-        }
-      }
+      toast.success(forceRefresh ? "Debug data refreshed" : "Debug data loaded", {
+        description: "Blueprint data and Q&A pairs retrieved"
+      });
+      
     } catch (error) {
-      console.error("Blueprint verification error:", error);
+      console.error("Blueprint debug error:", error);
       setDebugResults(`Error: ${error instanceof Error ? error.message : String(error)}`);
       
-      toast.error("Verification error", {
+      toast.error("Debug error", {
         description: error instanceof Error ? error.message : "Unknown error occurred"
       });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Modify the deleteBlueprint function to use the dialog instead of window.confirm
+  const deleteBlueprint = async () => {
+    if (!tempBlueprintId) {
+      toast.error("No blueprint ID found");
+      return;
+    }
+    
+    // Open the confirmation dialog instead of using window.confirm
+    setShowDeleteConfirmation(true);
+  };
+  
+  // Add a separate function to handle the actual deletion after confirmation
+  const handleConfirmedDeletion = async () => {
+    if (!tempBlueprintId) return;
+    
+    setIsLoading(true);
+    setShowDeleteConfirmation(false);
+    
+    try {
+      const response = await fetch(`/api/blueprints/${tempBlueprintId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      
+      if (response.ok) {
+        toast.success("Blueprint deleted successfully");
+        
+        // Close the modal after deletion
+        if (externalOnOpenChange) {
+          externalOnOpenChange(false);
+        } else {
+          setInternalIsOpen(false);
+        }
+      } else {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `Failed to delete blueprint: ${response.status}`);
+      }
+    } catch (error) {
+      console.error("Error deleting blueprint:", error);
+      toast.error("Failed to delete blueprint", {
+        description: error instanceof Error ? error.message : "Unknown error occurred"
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Add the generateTitle function
+  const generateTitle = async (promptText: string) => {
+    try {
+      const titleData = await post('/api/blueprints/generate-title', {
+        prompt: promptText,
+      });
+      return titleData.title || `Draft: ${promptText.substring(0, 30)}...`;
+    } catch (error) {
+      console.error('Error generating title:', error);
+      return `Draft: ${promptText.substring(0, 30)}...`;
     }
   };
 
@@ -1356,42 +1639,40 @@ export function CreateBlueprintModal({
       if (!tempBlueprintId) {
         console.log("No temporary blueprint ID found, creating one now");
         
-        // Create a new blueprint with improved error handling
-        const createResponse = await fetch('/api/blueprints', {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Cache-Control': 'no-cache'
-          },
-          credentials: 'include',
-          body: JSON.stringify({
-            title: prompt.split('\n')[0].slice(0, 50) || 'Draft Blueprint',
+        // Generate a title for the blueprint
+        const generatedTitle = await generateTitle(prompt);
+        
+        const descriptionToUse = description || ""; // Ensure description is not undefined
+        console.log("Creating blueprint with description:", descriptionToUse);
+        
+        try {
+          // Use the post helper from fetch-wrapper
+          const blueprintData = await post('/api/blueprints', {
+            title: generatedTitle,
             prompt: prompt, // Include the prompt but not as search_query
+            details: descriptionToUse, // Ensure description is sent as details
             visibility: 'private',
             is_temporary: true // Flag this as a temporary blueprint
-          })
-        });
-        
-        if (!createResponse.ok) {
-          const error = await createResponse.text();
+          });
+          
+          console.log('Created temporary blueprint with ID:', blueprintData.id);
+          console.log('Blueprint data received:', blueprintData);
+          setTempBlueprintId(blueprintData.id);
+          
+          // Add a significant delay after blueprint creation to allow database propagation
+          console.log("Waiting for database propagation...");
+          await new Promise(resolve => setTimeout(resolve, 2000)); // 2-second delay
+          
+          // Fetch questions directly using the new blueprint ID
+          console.log('Fetching questions with new blueprint ID', blueprintData.id);
+          await fetchQuestionsDirectly(prompt, blueprintData.id);
+        } catch (error) {
           console.error('Error creating temporary blueprint:', error);
           toast.error("Failed to create temporary blueprint", {
-            description: `Error: ${error}`
+            description: error instanceof Error ? error.message : String(error)
           });
-          throw new Error(`Error creating temporary blueprint: ${error}`);
+          throw error;
         }
-        
-        const blueprintData = await createResponse.json();
-        console.log('Created temporary blueprint with ID:', blueprintData.id);
-        setTempBlueprintId(blueprintData.id);
-        
-        // Add a significant delay after blueprint creation to allow database propagation
-        console.log("Waiting for database propagation...");
-        await new Promise(resolve => setTimeout(resolve, 2000)); // 2-second delay
-        
-        // Fetch questions directly using the new blueprint ID
-        console.log('Fetching questions with new blueprint ID', blueprintData.id);
-        await fetchQuestionsDirectly(prompt, blueprintData.id);
       } else {
         console.log('Using existing temporary blueprint ID:', tempBlueprintId);
         // If we already have a temporary blueprint ID, just fetch questions
@@ -1415,107 +1696,201 @@ export function CreateBlueprintModal({
   const fetchQuestionsDirectly = async (userPrompt: string, blueprintId: string) => {
     console.log(`Fetching questions for blueprint ${blueprintId}`);
     
-    const response = await fetch('/api/blueprints/questions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'no-cache'
-      },
-      credentials: 'include',
-      body: JSON.stringify({
+    try {
+      const questionsData = await post('/api/blueprints/questions', {
         prompt: userPrompt,
         blueprint_id: blueprintId
-      }),
-    });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`Error fetching questions: ${response.status} ${response.statusText}`, errorText);
-      throw new Error(`Failed to fetch questions: ${errorText}`);
-    }
-    
-    const questionsData = await response.json();
-    console.log('Questions API response:', questionsData);
-    
-    // Check if we received a blueprint title or description and update the state
-    if (questionsData.blueprint_title) {
-      setTitle(questionsData.blueprint_title);
-    }
-    
-    if (questionsData.blueprint_description) {
-      // If we have a description state, update it
-      if (typeof setDescription === 'function') {
-        setDescription(questionsData.blueprint_description);
-      }
-    }
-    
-    if (questionsData.questions && Array.isArray(questionsData.questions)) {
-      console.log('Received questions array:', questionsData.questions);
-      
-      // Ensure we have at least 4 questions
-      let questionsToUse = questionsData.questions;
-      if (questionsToUse.length < 4) {
-        console.log('Adding additional generic questions to reach minimum of 4');
-        const genericQuestions = [
-          {
-            id: 901,
-            title: "Target audience",
-            content: "Who will be using this AI tool? What's their technical background and role?"
-          },
-          {
-            id: 902,
-            title: "Use frequency",
-            content: "How often will this AI tool be used? Is it for daily operations or occasional tasks?"
-          },
-          {
-            id: 903,
-            title: "Success criteria",
-            content: "What metrics or outcomes will determine if this AI tool is successful?"
-          },
-          {
-            id: 904,
-            title: "Integration needs",
-            content: "Does this AI need to integrate with existing systems or tools? Which ones?"
-          }
-        ];
-        
-        // Add only as many generic questions as needed
-        const additionalNeeded = 4 - questionsToUse.length;
-        questionsToUse = [
-          ...questionsToUse,
-          ...genericQuestions.slice(0, additionalNeeded)
-        ];
-      }
-      
-      // Define a type for question items
-      type QuestionItem = {
-        id?: number;
-        title?: string;
-        content?: string;
-        [key: string]: unknown;
-      };
-      
-      // Make sure all questions have the required properties
-      const validatedQuestions = questionsToUse.map((q: QuestionItem, index: number) => ({
-        id: typeof q.id === 'number' ? q.id : index + 1,
-        title: q.title || `Question ${index + 1}`,
-        content: q.content || "Please provide more details about this aspect of your project."
-      }));
-      
-      // Initialize question status map
-      const initialStatus = validatedQuestions.reduce((acc: QuestionStatusMap, q: { id: number; title: string; content: string }) => {
-        acc[q.id] = "pending";
-        return acc;
-      }, {});
-      
-      setQuestions(validatedQuestions);
-      setQuestionStatus(initialStatus);
-      setActiveQuestionIndex(0); // Focus on the first question
-    } else {
-      console.error('Invalid response format from questions API:', questionsData);
-      toast.error("Invalid response format", {
-        description: "We received an unexpected response format from our AI service."
       });
+      
+      console.log('Questions API response:', questionsData);
+      
+      // Check if we received a blueprint title or description and update the state
+      if (questionsData.title) {
+        console.log('Setting blueprint title from API response:', questionsData.title);
+        setTitle(questionsData.title);
+      } else if (questionsData.blueprint_title) {
+        console.log('Setting blueprint title from API response (using blueprint_title):', questionsData.blueprint_title);
+        setTitle(questionsData.blueprint_title);
+      }
+      
+      let descriptionUpdated = false;
+      if (questionsData.description) {
+        console.log('Setting blueprint description from API response:', questionsData.description);
+        setDescription(questionsData.description);
+        descriptionUpdated = true;
+      } else if (questionsData.blueprint_description) {
+        console.log('Setting blueprint description from API response (using blueprint_description):', questionsData.blueprint_description);
+        setDescription(questionsData.blueprint_description);
+        descriptionUpdated = true;
+      }
+      
+      // Update the blueprint details in the database if we got a new description
+      if (descriptionUpdated && blueprintId && (questionsData.description || questionsData.blueprint_description)) {
+        try {
+          console.log('Updating blueprint details in database');
+          const updateResponse = await fetch(`/api/blueprints/${blueprintId}`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              'Cache-Control': 'no-cache'
+            },
+            credentials: 'include',
+            body: JSON.stringify({
+              details: questionsData.description || questionsData.blueprint_description
+            })
+          });
+          
+          if (updateResponse.ok) {
+            console.log('Successfully updated blueprint details');
+          } else {
+            console.error('Failed to update blueprint details:', await updateResponse.text());
+          }
+        } catch (error) {
+          console.error('Error updating blueprint details:', error);
+          // Continue with questions loading even if details update fails
+        }
+      }
+      
+      if (questionsData.questions && Array.isArray(questionsData.questions)) {
+        console.log('Received questions array:', questionsData.questions);
+        
+        // Ensure we have at least 4 questions
+        let questionsToUse = questionsData.questions;
+        if (questionsToUse.length < 4) {
+          console.log('Adding additional generic questions to reach minimum of 4');
+          const genericQuestions = [
+            {
+              id: 901,
+              title: "Target audience",
+              content: "Who will be using this AI tool? What's their technical background and role?"
+            },
+            {
+              id: 902,
+              title: "Use frequency",
+              content: "How often will this AI tool be used? Is it for daily operations or occasional tasks?"
+            },
+            {
+              id: 903,
+              title: "Success criteria",
+              content: "What metrics or outcomes will determine if this AI tool is successful?"
+            },
+            {
+              id: 904,
+              title: "Integration needs",
+              content: "Does this AI need to integrate with existing systems or tools? Which ones?"
+            }
+          ];
+          
+          // Add only as many generic questions as needed
+          const additionalNeeded = 4 - questionsToUse.length;
+          questionsToUse = [
+            ...questionsToUse,
+            ...genericQuestions.slice(0, additionalNeeded)
+          ];
+        }
+        
+        // Define a type for question items
+        type QuestionItem = {
+          id?: number;
+          title?: string;
+          content?: string;
+          [key: string]: unknown;
+        };
+        
+        // Make sure all questions have the required properties
+        const validatedQuestions = questionsToUse.map((q: QuestionItem, index: number) => ({
+          id: typeof q.id === 'number' ? q.id : index + 1,
+          title: q.title || `Question ${index + 1}`,
+          content: q.content || "Please provide more details about this aspect of your project."
+        }));
+        
+        // Initialize question status map
+        const initialStatus = validatedQuestions.reduce((acc: QuestionStatusMap, q: { id: number; title: string; content: string }) => {
+          acc[q.id] = "pending";
+          return acc;
+        }, {});
+        
+        setQuestions(validatedQuestions);
+        setQuestionStatus(initialStatus);
+        setActiveQuestionIndex(0); // Focus on the first question
+      } else {
+        console.error('Invalid response format from questions API:', questionsData);
+        toast.error("Invalid response format", {
+          description: "We received an unexpected response format from our AI service."
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching questions:', error);
+      toast.error("Failed to fetch questions", {
+        description: error instanceof Error ? error.message : "Unknown error occurred"
+      });
+    }
+  };
+
+  // Add a handler for prompt changes that tracks if an existing blueprint's prompt has changed
+  const handlePromptChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const newValue = e.target.value;
+    setPrompt(newValue);
+    
+    // Track if prompt was changed from initial value
+    if (isExistingBlueprint && newValue !== initialPrompt) {
+      setPromptChanged(true);
+    } else if (isExistingBlueprint && newValue === initialPrompt) {
+      setPromptChanged(false);
+    }
+  };
+
+  // Add this after the handleResponseChange function
+  const generateBoilerplateAnswer = async (questionId: number, questionContent: string, answerLength: 'short' | 'medium' | 'long' = 'medium') => {
+    try {
+      setIsLoading(true);
+      toast.loading("Generating answer...", { id: "generate-answer" });
+      
+      console.log("Generating answer for question:", {
+        questionId,
+        content: questionContent.substring(0, 150) + (questionContent.length > 150 ? '...' : ''),
+        blueprint_id: tempBlueprintId,
+        length: answerLength
+      });
+      
+      const response = await fetch("/api/blueprints/generate-answer", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          question: questionContent,
+          blueprint_id: tempBlueprintId,
+          length: answerLength
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to generate answer: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.answer) {
+        console.log("Generated answer length:", data.answer.length, "characters");
+        console.log("Generated answer preview:", data.answer.substring(0, 100) + "...");
+        
+        // Update the current response
+        setCurrentResponse(data.answer);
+        
+        toast.success("Answer generated", { id: "generate-answer" });
+      } else {
+        throw new Error("No answer received from the API");
+      }
+    } catch (error) {
+      console.error("Error generating answer:", error);
+      toast.error("Failed to generate answer", { 
+        id: "generate-answer",
+        description: error instanceof Error ? error.message : "Unknown error"
+      });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -1540,47 +1915,84 @@ export function CreateBlueprintModal({
               
               {/* Step Indicators */}
               <div className="flex items-center gap-6 text-sm">
-                <div className={cn(
-                  "flex items-center gap-2",
-                  currentStep === 'prompt' ? "text-primary font-medium" : "text-muted-foreground"
-                )}>
-                  <div className={cn(
-                    "w-5 h-5 flex items-center justify-center rounded-full text-xs",
-                    currentStep === 'prompt' 
-                      ? "border-primary border text-primary font-medium" 
-                      : "border border-muted-foreground/50 text-muted-foreground"
-                  )}>
+                <div
+                  className={cn(
+                    "flex items-center gap-2 cursor-pointer",
+                    currentStep === "prompt"
+                      ? "text-primary font-medium"
+                      : "text-muted-foreground"
+                  )}
+                  onClick={() => {
+                    // Only allow navigation to steps we've already reached
+                    if (prompt.trim()) {
+                      setCurrentStep("prompt");
+                    }
+                  }}
+                >
+                  <div
+                    className={cn(
+                      "w-5 h-5 flex items-center justify-center rounded-full text-xs",
+                      currentStep === "prompt"
+                        ? "border-primary border text-primary font-medium"
+                        : "border border-muted-foreground/50 text-muted-foreground"
+                    )}
+                  >
                     1
                   </div>
                   <span>Define Goal</span>
                 </div>
-                
-                <div className={cn(
-                  "flex items-center gap-2",
-                  currentStep === 'conversation' ? "text-primary font-medium" : "text-muted-foreground"
-                )}>
-                  <div className={cn(
-                    "w-5 h-5 flex items-center justify-center rounded-full text-xs",
-                    currentStep === 'conversation' 
-                      ? "border-primary border text-primary font-medium" 
-                      : "border border-muted-foreground/50 text-muted-foreground"
-                  )}>
+
+                <div
+                  className={cn(
+                    "flex items-center gap-2",
+                    currentStep === "conversation"
+                      ? "text-primary font-medium"
+                      : "text-muted-foreground",
+                    !questions.length && "opacity-50 cursor-not-allowed" // Disable if no questions yet
+                  )}
+                  onClick={() => {
+                    // Only allow navigation if we have questions
+                    if (questions.length > 0) {
+                      setCurrentStep("conversation");
+                    }
+                  }}
+                >
+                  <div
+                    className={cn(
+                      "w-5 h-5 flex items-center justify-center rounded-full text-xs",
+                      currentStep === "conversation"
+                        ? "border-primary border text-primary font-medium"
+                        : "border border-muted-foreground/50 text-muted-foreground"
+                    )}
+                  >
                     2
                   </div>
                   <span>Clarify Details</span>
                 </div>
-                
+
                 {finalData && (
-                  <div className={cn(
-                    "flex items-center gap-2",
-                    currentStep === 'review' ? "text-primary font-medium" : "text-muted-foreground"
-                  )}>
-                    <div className={cn(
-                      "w-5 h-5 flex items-center justify-center rounded-full text-xs",
-                      currentStep === 'review' 
-                        ? "border-primary border text-primary font-medium" 
-                        : "border border-muted-foreground/50 text-muted-foreground"
-                    )}>
+                  <div
+                    className={cn(
+                      "flex items-center gap-2 cursor-pointer",
+                      currentStep === "review"
+                        ? "text-primary font-medium"
+                        : "text-muted-foreground"
+                    )}
+                    onClick={() => {
+                      // Only allow navigation if we have finalData
+                      if (finalData) {
+                        setCurrentStep("review");
+                      }
+                    }}
+                  >
+                    <div
+                      className={cn(
+                        "w-5 h-5 flex items-center justify-center rounded-full text-xs",
+                        currentStep === "review"
+                          ? "border-primary border text-primary font-medium"
+                          : "border border-muted-foreground/50 text-muted-foreground"
+                      )}
+                    >
                       3
                     </div>
                     <span>Review</span>
@@ -1602,7 +2014,7 @@ export function CreateBlueprintModal({
                     placeholder="E.g., Run a daily search of LinkedIn posts for specific keywords, extract post data, and summarize the content..." 
                     className="h-full resize-none text-lg p-6 border focus-visible:ring-offset-1"
                     value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
+                    onChange={handlePromptChange}
                     disabled={isLoading}
                     required
                   />
@@ -1683,14 +2095,49 @@ export function CreateBlueprintModal({
                     {autoSaving && <span className="ml-2 text-sm text-muted-foreground">(Auto-saving...)</span>}
                   </h3>
                   
-                  <Textarea 
-                    placeholder="Type your response here..." 
-                    className="h-full resize-none text-lg p-6 border focus-visible:ring-offset-1"
-                    value={currentResponse}
-                    onChange={handleResponseChange}
-                    onBlur={handleResponseBlur}
-                    disabled={isLoading}
-                  />
+                  <div className="relative h-full">
+                    <Textarea 
+                      placeholder="Type your response here..." 
+                      className="h-full resize-none text-lg p-6 border focus-visible:ring-offset-1"
+                      value={currentResponse}
+                      onChange={handleResponseChange}
+                      onBlur={handleResponseBlur}
+                      disabled={isLoading}
+                    />
+                    
+                    <div className="absolute bottom-3 right-3 flex items-center gap-2">
+                      <Select
+                        value={answerLength}
+                        onValueChange={(value) => setAnswerLength(value as 'short' | 'medium' | 'long')}
+                      >
+                        <SelectTrigger className="w-[100px] h-8 text-xs">
+                          <SelectValue placeholder="Medium" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="short">Brief</SelectItem>
+                          <SelectItem value="medium">Medium</SelectItem>
+                          <SelectItem value="long">Detailed</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="text-xs h-8"
+                        onClick={() => {
+                          const currentQuestion = questions[activeQuestionIndex];
+                          if (currentQuestion) {
+                            generateBoilerplateAnswer(currentQuestion.id, currentQuestion.content, answerLength);
+                          }
+                        }}
+                        disabled={isLoading}
+                      >
+                        {isLoading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Wand2 className="h-3 w-3 mr-1" />}
+                        Generate
+                      </Button>
+                    </div>
+                  </div>
                 </div>
                 
                 {/* Right column with question cards */}
@@ -1820,7 +2267,7 @@ export function CreateBlueprintModal({
           {/* Footer with Back and Continue/Create buttons */}
           <DialogFooter className="border-t py-4 px-8 mt-auto">
             <div className="w-full flex items-center justify-between">
-              <div>
+              <div className="flex items-center">
                 {currentStep !== 'prompt' && (
                   <Button 
                     type="button" 
@@ -1834,17 +2281,44 @@ export function CreateBlueprintModal({
                   </Button>
                 )}
                 
-                {/* Debug button - only shown in development mode */}
+                {/* Debug and Delete buttons - only shown in development mode */}
                 {process.env.NODE_ENV === 'development' && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="ml-4 text-xs border-red-300 text-red-600 hover:bg-red-50"
-                    onClick={debugBlueprint}
-                  >
-                    Debug
-                  </Button>
+                  <div className="flex ml-4 space-x-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="text-xs border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-900 gap-1"
+                      onClick={() => {
+                        // Toggle the debug panel without forcing refresh if already open
+                        if (debugResults) {
+                          setIsDebugOpen(!isDebugOpen);
+                        } else {
+                          // Load data if first time opening
+                          debugBlueprint(false);
+                        }
+                      }}
+                      disabled={isLoading || !tempBlueprintId}
+                    >
+                      Debug
+                      {isDebugOpen ? 
+                        <ChevronUp className="h-3 w-3 ml-1" /> : 
+                        <ChevronDown className="h-3 w-3 ml-1" />}
+                    </Button>
+                    
+                    {tempBlueprintId && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="text-xs border-orange-300 text-orange-600 hover:bg-orange-50 dark:border-orange-800 dark:text-orange-400 dark:hover:bg-orange-950/30"
+                        onClick={deleteBlueprint}
+                        disabled={isLoading}
+                      >
+                        Delete
+                      </Button>
+                    )}
+                  </div>
                 )}
               </div>
               <Button 
@@ -1853,6 +2327,7 @@ export function CreateBlueprintModal({
                 disabled={
                   isLoading || 
                   (currentStep === 'prompt' && !prompt.trim()) ||
+                  (currentStep === 'prompt' && isExistingBlueprint && !promptChanged) ||
                   (currentStep === 'conversation' && questions.length > 0 && questions.every(q => questionStatus[q.id] === 'pending'))
                 }
                 className="gap-2 px-8"
@@ -1864,7 +2339,7 @@ export function CreateBlueprintModal({
                   </>
                 ) : (
                   <>
-                    {currentStep === 'prompt' && "Continue"}
+                    {currentStep === 'prompt' && (isExistingBlueprint && promptChanged ? "Refresh Questions" : "Continue")}
                     {currentStep === 'conversation' && "Create Blueprint"}
                     {currentStep === 'review' && "Create Blueprint"}
                     {currentStep === 'prompt' && <ArrowRight className="h-4 w-4" />}
@@ -1874,14 +2349,98 @@ export function CreateBlueprintModal({
             </div>
           </DialogFooter>
           
-          {/* Debug Results Display */}
-          {debugResults && (
-            <div className="mt-4 p-3 bg-slate-900 text-white text-xs rounded-md overflow-auto max-h-80 font-mono">
-              <pre>{debugResults}</pre>
+          {/* Debug Results Display - only show when isDebugOpen is true */}
+          {debugResults && isDebugOpen && (
+            <div className="mt-4 relative p-3 bg-slate-900 text-white text-xs rounded-md max-h-[500px] font-mono overflow-hidden">
+              {/* Sticky header with buttons that stays on top when scrolling */}
+              <div className="sticky top-0 right-0 z-20 flex justify-end bg-slate-900/95 backdrop-blur-sm py-1 mb-2 border-b border-slate-700">
+                <div className="flex space-x-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 p-0 bg-slate-800 hover:bg-slate-700 text-slate-200"
+                    onClick={() => debugBlueprint(true)} // Always pass true to force a refresh
+                    title="Refresh debug data"
+                    disabled={isLoading}
+                  >
+                    <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 p-0 bg-slate-800 hover:bg-slate-700 text-slate-200"
+                    onClick={copyDebugToClipboard}
+                    title="Copy debug data to clipboard"
+                  >
+                    {hasCopied ? 
+                      <Check className="h-4 w-4" /> : 
+                      <Copy className="h-4 w-4" />}
+                  </Button>
+                </div>
+              </div>
+              
+              {/* Scrollable content area - no fixed height, just max-height constraint */}
+              <div className="overflow-auto max-h-[460px]">
+                <pre className="whitespace-pre-wrap">{debugResults}</pre>
+              </div>
             </div>
+          )}
+          
+          {/* Confirmation Dialog for regenerating questions */}
+          {showConfirmation && (
+            <Dialog open={showConfirmation} onOpenChange={setShowConfirmation}>
+              <DialogContent className="sm:max-w-[425px]">
+                <DialogHeader>
+                  <DialogTitle>Refresh Questions?</DialogTitle>
+                  <DialogDescription>
+                    This will generate new questions based on your updated prompt. Your previous answers will be lost and you&apos;ll need to answer the new questions.
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setShowConfirmation(false)}>
+                    Cancel
+                  </Button>
+                  <Button 
+                    onClick={async () => {
+                      setShowConfirmation(false);
+                      await handleInitialPrompt();
+                    }}
+                  >
+                    Continue
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
+          
+          {/* Delete Confirmation Dialog */}
+          {showDeleteConfirmation && (
+            <Dialog open={showDeleteConfirmation} onOpenChange={setShowDeleteConfirmation}>
+              <DialogContent className="sm:max-w-[425px]">
+                <DialogHeader>
+                  <DialogTitle>Delete Blueprint?</DialogTitle>
+                  <DialogDescription>
+                    Are you sure you want to delete this blueprint? This action cannot be undone and all associated data will be permanently removed.
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setShowDeleteConfirmation(false)}>
+                    Cancel
+                  </Button>
+                  <Button 
+                    variant="destructive"
+                    onClick={handleConfirmedDeletion}
+                  >
+                    Delete
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           )}
         </form>
       </DialogContent>
     </Dialog>
   );
-} 
+}

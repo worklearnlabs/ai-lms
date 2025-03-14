@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { createRouteHandler } from '@/utils/route-handlers';
 import { createClient } from '@supabase/supabase-js';
@@ -9,6 +10,32 @@ const SaveResponsesSchema = z.object({
   blueprint_id: z.string().uuid(),
   responses: z.record(z.string(), z.string()), // Map of question id to response
 });
+
+// Define more specific types
+type Question = {
+  id: number;
+  title: string;
+  content: string;
+  [key: string]: unknown;
+};
+
+// Define response types with improved type safety
+type SuccessResponse = {
+  questions?: Question[];
+  responses?: Record<string, string>;
+  message?: string;
+  blueprint_id?: string;
+  created_at?: string;
+  updated_at?: string;
+  success?: boolean;
+};
+
+type ErrorResponse = { 
+  error: string;
+  details?: string;
+};
+
+type ApiResponse = SuccessResponse | ErrorResponse;
 
 // Create a service role client for admin operations
 function getServiceRoleClient() {
@@ -27,9 +54,9 @@ function getServiceRoleClient() {
  * GET /api/blueprints/questions/responses?blueprint_id={id}
  * Retrieves stored questions and responses for a blueprint
  */
-export const GET = createRouteHandler(
+export const GET = createRouteHandler<ApiResponse>(
   ['GET'],
-  async (req, { supabase, user }) => {
+  async (req: NextRequest, { supabase, user }) => {
     try {
       // Get blueprint_id from query string
       const url = new URL(req.url);
@@ -42,34 +69,68 @@ export const GET = createRouteHandler(
         );
       }
       
-      // Get the questions and responses
-      const { data, error } = await supabase
+      console.log(`Fetching questions for blueprint: ${blueprint_id}`);
+      
+      // Check if this is a temporary blueprint
+      const { data: blueprintData, error: blueprintError } = await supabase
+        .from('blueprints')
+        .select('is_temporary, user_id')
+        .eq('id', blueprint_id)
+        .maybeSingle();
+        
+      if (blueprintError && blueprintError.code !== 'PGRST116') {
+        console.error('Error checking blueprint status:', blueprintError);
+      }
+      
+      // Determine if we need to use service role client (for temporary blueprints or if RLS might block)
+      const isTemporaryBlueprint = blueprintData?.is_temporary === true;
+      const shouldUseServiceRole = isTemporaryBlueprint || !user;
+      const dbClient = shouldUseServiceRole ? getServiceRoleClient() || supabase : supabase;
+      
+      // Get the questions from the blueprint_questions table
+      const { data: questionsData, error: questionsError } = await dbClient
         .from('blueprint_questions')
         .select('*')
         .eq('blueprint_id', blueprint_id)
-        .single();
+        .maybeSingle();
       
-      if (error) {
-        console.error('Error fetching blueprint questions and responses:', error);
+      if (questionsError) {
+        console.error('Error fetching blueprint questions:', questionsError);
         
-        if (error.code === 'PGRST116') { // Not found
+        if (questionsError.code === 'PGRST116') { // Not found
           return NextResponse.json(
-            { error: 'No questions found for this blueprint' },
-            { status: 404 }
+            { 
+              questions: [],
+              responses: {},
+              message: 'No questions found for this blueprint' 
+            },
+            { status: 200 } // Return empty arrays instead of 404 for better client handling
           );
         }
         
         return NextResponse.json(
-          { error: 'Failed to fetch questions and responses' },
+          { error: 'Failed to fetch questions', details: questionsError.message },
           { status: 500 }
         );
       }
       
-      return NextResponse.json(data);
+      // Structure the response data
+      const responseData = {
+        questions: questionsData?.questions || [],
+        responses: questionsData?.responses || {},
+        blueprint_id: blueprint_id,
+        created_at: questionsData?.created_at,
+        updated_at: questionsData?.updated_at
+      };
+      
+      // Log what we found for debugging
+      console.log(`Found ${responseData.questions.length} questions and ${Object.keys(responseData.responses).length} responses for blueprint ${blueprint_id}`);
+      
+      return NextResponse.json(responseData);
     } catch (error) {
       console.error('Error in GET responses:', error);
       return NextResponse.json(
-        { error: 'Failed to process request' },
+        { error: 'Failed to process request', details: error instanceof Error ? error.message : String(error) },
         { status: 500 }
       );
     }
@@ -81,9 +142,9 @@ export const GET = createRouteHandler(
  * POST /api/blueprints/questions/responses
  * Saves user responses to blueprint questions
  */
-export const POST = createRouteHandler(
+export const POST = createRouteHandler<ApiResponse>(
   ['POST'],
-  async (req, { supabase, user }) => {
+  async (req: NextRequest, { supabase, user }) => {
     try {
       // Get and validate request body
       const json = await req.json();
@@ -212,10 +273,11 @@ export const POST = createRouteHandler(
           updated_at: new Date().toISOString()
         };
         
-        // If we have a user and this isn't temporary, add the user_id
-        if (user && !isTemporaryBlueprint) {
-          // @ts-ignore - We're adding this dynamically if the schema supports it
-          insertData.user_id = user.id;
+        // Log authentication status for debugging
+        if (user) {
+          console.log(`User ${user.id} is authenticated, but user_id not stored in blueprint_questions`);
+        } else if (isTemporaryBlueprint) {
+          console.log(`No user available for temporary blueprint ${blueprint_id}`);
         }
         
         const { data: newRecord, error: createError } = await dbClient
