@@ -3,13 +3,17 @@ import { z } from 'zod';
 import { generateWithFallback } from '@/utils/ai-orchestrator';
 import { createRouteHandler } from '@/utils/route-handlers';
 import { NextRequest } from 'next/server';
+import type { ChatCompletionMessageParam } from 'openai/resources';
 
 // Define the finalize request schema
 const FinalizeRequestSchema = z.object({
   blueprint_id: z.string().uuid(),
   prompt: z.string(),
   responses: z.record(z.string(), z.string()),
-  description: z.string().optional() // Allow description to be passed in
+  description: z.string().optional(), // Allow description to be passed in
+  user_skill_level: z.string().optional(), // Add user skill level
+  learning_objective: z.string().optional(), // Add learning objective
+  custom_prompt: z.string().optional() // Add support for custom prompt
 });
 
 // Define the question type
@@ -21,6 +25,23 @@ interface BlueprintQuestion {
 
 // Allow longer timeout for AI generation
 export const maxDuration = 60;
+
+// Define the response types to fix the type error in route handler
+interface FinalizeSuccessResponse {
+  title: string;
+  search_query: string;
+  description?: string;
+  skill_level?: string;
+  estimated_time?: string;
+  prerequisites?: string[];
+}
+
+interface FinalizeErrorResponse {
+  error: string;
+  details?: string | Record<string, unknown>;
+}
+
+type FinalizeResponse = FinalizeSuccessResponse | FinalizeErrorResponse;
 
 /**
  * System prompt for generating the final blueprint
@@ -74,7 +95,7 @@ export const POST = createRouteHandler(
         );
       }
       
-      const { blueprint_id, prompt, responses, description } = validateResult.data;
+      const { blueprint_id, prompt, responses, description, custom_prompt, user_skill_level, learning_objective } = validateResult.data;
       
       // Log authentication status for debugging
       console.log('Blueprint finalization auth status:', {
@@ -114,6 +135,22 @@ export const POST = createRouteHandler(
       
       // Construct the AI prompt
       const questions = questionsData?.questions as BlueprintQuestion[] || [];
+      
+      // Use custom prompt if provided, otherwise build from components
+      const userPrompt = custom_prompt || `Initial prompt: "${prompt}"\n\n${
+        questions.length > 0 
+          ? 'Questions and responses:\n' + 
+            questions.map((q: BlueprintQuestion) => {
+              const questionId = q.id.toString();
+              const response = responses[questionId] || 'No response provided';
+              return `Question: ${q.title} - ${q.content}\nResponse: ${response}`;
+            }).join('\n\n')
+          : 'Additional responses:\n' + 
+            Object.entries(responses).map(([id, response]) => 
+              `Response ${id}: ${response}`
+            ).join('\n\n')
+      }${user_skill_level ? `\n\nUser Skill Level: ${user_skill_level}` : ''}${learning_objective ? `\n\nLearning Objective: ${learning_objective}` : ''}`;
+      
       const conversationMessages = [
         {
           role: 'system',
@@ -121,90 +158,139 @@ export const POST = createRouteHandler(
         },
         {
           role: 'user',
-          content: `Initial prompt: "${prompt}"\n\n${
-            questions.length > 0 
-              ? 'Questions and responses:\n' + 
-                questions.map((q: BlueprintQuestion) => {
-                  const questionId = q.id.toString();
-                  const response = responses[questionId] || 'No response provided';
-                  return `Question: ${q.title} - ${q.content}\nResponse: ${response}`;
-                }).join('\n\n')
-              : 'Additional responses:\n' + 
-                Object.entries(responses).map(([id, response]) => 
-                  `Response ${id}: ${response}`
-                ).join('\n\n')
-          }`
+          content: userPrompt
         }
       ];
       
       console.log('Generating final blueprint data using AI...');
       
-      // Call the AI model for the finalized data
-      const aiResponse = await generateWithFallback(
-        `Analyze this blueprint data and generate a final response:
-        Initial prompt: ${prompt}
-        Questions and responses: ${JSON.stringify(conversationMessages[1].content)}`,
-        {
-          model: "claude-3-opus-20240229", // Prefer Claude for reasoning
-          messages: conversationMessages,
-          temperature: 0.5,
-        }
-      );
-      
-      if (!aiResponse || !aiResponse.content) {
-        return NextResponse.json(
-          { error: 'Failed to generate finalized blueprint data' },
-          { status: 500 }
-        );
-      }
-      
-      console.log('AI generated response for finalize');
-      
-      // Try to parse JSON from the response
+      // Try OpenAI directly first with a simple model
       try {
-        // Look for JSON structure in the content
-        const jsonMatch = aiResponse.content.match(/\{[\s\S]*\}/);
+        // Import OpenAI directly to ensure we're using the correct configuration
+        const { OpenAI } = await import("openai");
+        const openai = new OpenAI({
+          apiKey: process.env.OPENAI_API_KEY,
+        });
         
-        if (!jsonMatch) {
-          console.error('No JSON found in AI response:', aiResponse.content);
+        const response = await openai.chat.completions.create({
+          model: "gpt-3.5-turbo-0125", // Start with a simpler model that's more likely to be available
+          messages: [
+            { role: "system", content: getFinalizeSystemPrompt() },
+            { role: "user", content: userPrompt }
+          ] as ChatCompletionMessageParam[], // Use proper OpenAI types
+          temperature: 0.5,
+          response_format: { type: "json_object" } // Force JSON format
+        });
+        
+        const content = response.choices[0]?.message?.content;
+        
+        if (!content) {
+          throw new Error("Empty response from OpenAI");
+        }
+        
+        // Parse the JSON response
+        try {
+          const parsedData = JSON.parse(content);
+          
+          // Validate the required fields
+          if (!parsedData.title || !parsedData.search_query) {
+            console.error('AI response missing required fields:', parsedData);
+            throw new Error('AI generated data is missing required fields');
+          }
+          
+          console.log('Finalized blueprint data from OpenAI:', {
+            title: parsedData.title,
+            search_query_length: parsedData.search_query?.length || 0
+          });
+          
+          // Return the finalized data
+          return NextResponse.json({
+            title: parsedData.title,
+            search_query: parsedData.search_query,
+            description: parsedData.description || description,
+            skill_level: parsedData.skill_level,
+            estimated_time: parsedData.estimated_time,
+            prerequisites: parsedData.prerequisites || []
+          });
+        } catch (parseError) {
+          console.error('Error parsing OpenAI response:', parseError, 'Response:', content);
+          throw new Error('Failed to parse OpenAI response');
+        }
+      } catch (openaiError) {
+        console.error('OpenAI error, falling back to generateWithFallback:', openaiError);
+        
+        // Fall back to the existing fallback mechanism
+        try {
+          const aiResponse = await generateWithFallback(
+            userPrompt,
+            {
+              model: "gpt-4-turbo", // Prefer a different model than the one we just tried
+              messages: conversationMessages,
+              temperature: 0.5,
+            }
+          );
+          
+          if (!aiResponse || !aiResponse.content) {
+            return NextResponse.json(
+              { error: 'Failed to generate finalized blueprint data' },
+              { status: 500 }
+            );
+          }
+          
+          console.log('AI generated response for finalize using fallback');
+          
+          // Try to parse JSON from the response
+          try {
+            // Look for JSON structure in the content
+            const jsonMatch = aiResponse.content.match(/\{[\s\S]*\}/);
+            
+            if (!jsonMatch) {
+              console.error('No JSON found in AI response:', aiResponse.content);
+              return NextResponse.json(
+                { error: 'AI response did not contain valid JSON data' },
+                { status: 500 }
+              );
+            }
+            
+            const parsedData = JSON.parse(jsonMatch[0]);
+            
+            // Validate the required fields
+            if (!parsedData.title || !parsedData.search_query) {
+              console.error('AI response missing required fields:', parsedData);
+              return NextResponse.json(
+                { error: 'AI generated data is missing required fields' },
+                { status: 500 }
+              );
+            }
+            
+            console.log('Finalized blueprint data from fallback:', {
+              title: parsedData.title,
+              search_query_length: parsedData.search_query?.length || 0
+            });
+            
+            // Return the finalized data
+            return NextResponse.json({
+              title: parsedData.title,
+              search_query: parsedData.search_query,
+              description: parsedData.description || description,
+              skill_level: parsedData.skill_level,
+              estimated_time: parsedData.estimated_time,
+              prerequisites: parsedData.prerequisites || []
+            });
+          } catch (parseError) {
+            console.error('Error parsing AI response:', parseError, 'Response:', aiResponse.content);
+            return NextResponse.json(
+              { error: 'Failed to parse AI response' },
+              { status: 500 }
+            );
+          }
+        } catch (fallbackError) {
+          console.error('Fallback mechanism also failed:', fallbackError);
           return NextResponse.json(
-            { error: 'AI response did not contain valid JSON data' },
+            { error: 'All AI services are currently unavailable', details: 'Please try again later' },
             { status: 500 }
           );
         }
-        
-        const parsedData = JSON.parse(jsonMatch[0]);
-        
-        // Validate the required fields
-        if (!parsedData.title || !parsedData.search_query) {
-          console.error('AI response missing required fields:', parsedData);
-          return NextResponse.json(
-            { error: 'AI generated data is missing required fields' },
-            { status: 500 }
-          );
-        }
-        
-        console.log('Finalized blueprint data:', {
-          title: parsedData.title,
-          search_query_length: parsedData.search_query?.length || 0
-        });
-        
-        // Return the finalized data without updating the blueprint yet
-        // The actual update happens in handleCreateBlueprint in the UI
-        return NextResponse.json({
-          title: parsedData.title,
-          search_query: parsedData.search_query,
-          description: description || parsedData.description,
-          skill_level: parsedData.skill_level,
-          estimated_time: parsedData.estimated_time,
-          prerequisites: parsedData.prerequisites || []
-        });
-      } catch (parseError) {
-        console.error('Error parsing AI response:', parseError, 'Response:', aiResponse.content);
-        return NextResponse.json(
-          { error: 'Failed to parse AI response' },
-          { status: 500 }
-        );
       }
     } catch (error) {
       console.error('Error in finalize endpoint:', error);
@@ -217,5 +303,5 @@ export const POST = createRouteHandler(
       );
     }
   },
-  { requireAuth: false } // Allow unauthenticated access for temporary blueprints
+  { requireAuth: false } as const
 ); 

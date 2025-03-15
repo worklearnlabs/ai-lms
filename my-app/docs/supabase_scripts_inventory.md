@@ -31,6 +31,8 @@ This document catalogs all SQL scripts that have been manually executed in the S
 | Retrieve Enum Types and Values                   | enum_types_retrieval                 | Script to retrieve enum types and their values                                        | TBD          |
 | Enum Types for Application States                | application_states_enums             | Define enum types for application states                                              | TBD          |
 | Temporary Blueprint Questions Policy             | temporary_blueprint_questions_policy | Create RLS policy to allow operations on blueprint questions for temporary blueprints | 2025-03-25   |
+| Blueprint Research Table                         | blueprint_research_table_creation    | Create the table for storing Perplexity API research data                             | TBD          |
+| Blueprint Research RLS Policies                  | blueprint_research_rls_policies      | RLS policies for the blueprint_research table                                         | TBD          |
 
 ## Script Contents
 
@@ -692,6 +694,87 @@ CREATE POLICY allow_temporary_blueprint_questions ON public.blueprint_questions
 -- Add a comment explaining the policy
 COMMENT ON POLICY allow_temporary_blueprint_questions ON public.blueprint_questions IS
     'Allows operations on blueprint questions for temporary blueprints without requiring authentication';
+```
+
+### blueprint_research_table_creation
+
+```sql
+-- Create Blueprint Research Table
+-- This table stores AI-generated research content for blueprints
+
+DO $$
+BEGIN
+    -- Create enum for research status if it doesn't exist
+    IF NOT EXISTS (SELECT 1 FROM pg_type JOIN pg_namespace ON pg_type.typnamespace = pg_namespace.oid
+                   WHERE typname = 'research_status_type' AND nspname = 'public') THEN
+        CREATE TYPE public.research_status_type AS ENUM ('pending', 'complete', 'failed');
+    END IF;
+END
+$$;
+
+-- Create the blueprint_research table if it doesn't exist
+CREATE TABLE IF NOT EXISTS public.blueprint_research (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  blueprint_id UUID NOT NULL REFERENCES public.blueprints(id) ON DELETE CASCADE,
+  search_query TEXT NOT NULL,
+  research_data JSONB NOT NULL,
+  sources JSONB,
+  usage_metrics JSONB,
+  status research_status_type DEFAULT 'complete',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+-- Add index for faster lookups
+CREATE INDEX IF NOT EXISTS idx_blueprint_research_blueprint_id
+ON public.blueprint_research(blueprint_id);
+
+-- Add comment describing the table
+COMMENT ON TABLE public.blueprint_research IS 'Stores AI-generated research content for blueprints from Perplexity API';
+
+-- Enable Row Level Security
+ALTER TABLE public.blueprint_research ENABLE ROW LEVEL SECURITY;
+```
+
+### blueprint_research_rls_policies
+
+```sql
+-- RLS Policies for Blueprint Research
+-- These policies control access to the blueprint_research table
+
+-- Allow users to view research for blueprints they own
+CREATE POLICY blueprint_research_owner_select ON public.blueprint_research
+  FOR SELECT USING (blueprint_id IN (
+    SELECT id FROM public.blueprints WHERE user_id = auth.uid()
+  ));
+
+-- Allow users to create research for blueprints they own
+CREATE POLICY blueprint_research_owner_insert ON public.blueprint_research
+  FOR INSERT WITH CHECK (blueprint_id IN (
+    SELECT id FROM public.blueprints WHERE user_id = auth.uid()
+  ));
+
+-- Allow users to update research for blueprints they own
+CREATE POLICY blueprint_research_owner_update ON public.blueprint_research
+  FOR UPDATE USING (blueprint_id IN (
+    SELECT id FROM public.blueprints WHERE user_id = auth.uid()
+  ));
+
+-- Allow users to view research for public blueprints
+CREATE POLICY blueprint_research_public_view ON public.blueprint_research
+  FOR SELECT USING (blueprint_id IN (
+    SELECT id FROM public.blueprints WHERE visibility = 'public'
+  ));
+
+-- Add comments explaining the policies
+COMMENT ON POLICY blueprint_research_owner_select ON public.blueprint_research IS
+  'Allow users to view research for blueprints they own';
+COMMENT ON POLICY blueprint_research_owner_insert ON public.blueprint_research IS
+  'Allow users to create research for blueprints they own';
+COMMENT ON POLICY blueprint_research_owner_update ON public.blueprint_research IS
+  'Allow users to update research for blueprints they own';
+COMMENT ON POLICY blueprint_research_public_view ON public.blueprint_research IS
+  'Allow users to view research for public blueprints';
 ```
 
 ## Maintenance Guidelines

@@ -40,6 +40,9 @@ import {
 // Add this import at the top of the file
 import { post } from '@/utils/fetch-wrapper';
 
+// Import BlueprintDebugWindow at the top of the file
+import { BlueprintDebugWindow } from "@/components/BlueprintDebugWindow";
+
 interface CreateBlueprintModalProps {
   triggerButton?: React.ReactNode;
   isOpen?: boolean;
@@ -185,6 +188,9 @@ export function CreateBlueprintModal({
   
   // Add state to track if debug panel is open
   const [isDebugOpen, setIsDebugOpen] = useState(false);
+  
+  // Fix the apiDebugData state to include the setter
+  const [apiDebugData, setApiDebugData] = useState({});
   
   // Function to copy debug results to clipboard
   const copyDebugToClipboard = () => {
@@ -2300,20 +2306,39 @@ export function CreateBlueprintModal({
                       size="sm"
                       className="text-xs border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-900 gap-1"
                       onClick={() => {
-                        // Toggle the debug panel without forcing refresh if already open
-                        if (debugResults) {
-                          setIsDebugOpen(!isDebugOpen);
-                        } else {
-                          // Load data if first time opening
-                          debugBlueprint(false);
+                        // Set debugIsOpen to true
+                        setIsDebugOpen(!isDebugOpen);
+                        
+                        // Also add sample API debug data for demonstration
+                        if (!isDebugOpen) {
+                          // When opening, populate some API debug data
+                          const sampleApiDebugData = {
+                            openaiRequest: {
+                              endpoint: '/api/blueprints/reason/finalize',
+                              method: 'POST',
+                              data: {
+                                prompt: prompt,
+                                description: description,
+                                responses: responses
+                              }
+                            },
+                            openaiResponse: {
+                              title: "Competitive Marketing Analysis AI",
+                              search_query: "Create an AI system to analyze competitors' marketing materials",
+                              description: "Detailed description would be here"
+                            }
+                          };
+                          
+                          // Update API debug data
+                          setApiDebugData(sampleApiDebugData);
                         }
+                        
+                        // Trigger debug blueprint
+                        debugBlueprint();
                       }}
                       disabled={isLoading || !tempBlueprintId}
                     >
-                      Debug
-                      {isDebugOpen ? 
-                        <ChevronUp className="h-3 w-3 ml-1" /> : 
-                        <ChevronDown className="h-3 w-3 ml-1" />}
+                      Debug <span className="sr-only">Debug</span>
                     </Button>
                     
                     {tempBlueprintId && (
@@ -2361,41 +2386,25 @@ export function CreateBlueprintModal({
           
           {/* Debug Results Display - only show when isDebugOpen is true */}
           {debugResults && isDebugOpen && (
-            <div className="mt-4 relative p-3 bg-slate-900 text-white text-xs rounded-md max-h-[500px] font-mono overflow-hidden">
-              {/* Sticky header with buttons that stays on top when scrolling */}
-              <div className="sticky top-0 right-0 z-20 flex justify-end bg-slate-900/95 backdrop-blur-sm py-1 mb-2 border-b border-slate-700">
-                <div className="flex space-x-1">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 w-8 p-0 bg-slate-800 hover:bg-slate-700 text-slate-200"
-                    onClick={() => debugBlueprint(true)} // Always pass true to force a refresh
-                    title="Refresh debug data"
-                    disabled={isLoading}
-                  >
-                    <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 w-8 p-0 bg-slate-800 hover:bg-slate-700 text-slate-200"
-                    onClick={copyDebugToClipboard}
-                    title="Copy debug data to clipboard"
-                  >
-                    {hasCopied ? 
-                      <Check className="h-4 w-4" /> : 
-                      <Copy className="h-4 w-4" />}
-                  </Button>
-                </div>
-              </div>
-              
-              {/* Scrollable content area - no fixed height, just max-height constraint */}
-              <div className="overflow-auto max-h-[460px]">
-                <pre className="whitespace-pre-wrap">{debugResults}</pre>
-              </div>
-            </div>
+            <>
+              {(() => {
+                let parsedData;
+                try {
+                  parsedData = JSON.parse(debugResults);
+                } catch (e) {
+                  parsedData = { message: debugResults };
+                }
+                
+                return (
+                  <BlueprintDebugWindow
+                    blueprintData={parsedData}
+                    apiDebugData={apiDebugData}
+                    onRefresh={() => debugBlueprint(true)}
+                    isLoading={isLoading}
+                  />
+                );
+              })()}
+            </>
           )}
           
           {/* Confirmation Dialog for regenerating questions */}

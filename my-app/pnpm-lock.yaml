@@ -11,6 +11,9 @@ importers:
       '@ai-sdk/openai':
         specifier: ^1.2.1
         version: 1.2.1(zod@3.24.2)
+      '@ai-sdk/perplexity':
+        specifier: ^1.0.7
+        version: 1.0.7(zod@3.24.2)
       '@ai-sdk/react':
         specifier: ^1.1.21
         version: 1.1.21(react@19.0.0)(zod@3.24.2)
@@ -171,6 +174,12 @@ packages:
     peerDependencies:
       zod: ^3.0.0
 
+  '@ai-sdk/perplexity@1.0.7':
+    resolution: {integrity: sha512-+K86L/X5gnmhu+M89RpaUliZp80updKF2rfH78OO2TBVUxQ1KFGqfc0M0Jm60O4sXNW9Z234l8z5nQbqz+r0AQ==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      zod: ^3.0.0
+
   '@ai-sdk/provider-utils@2.1.11':
     resolution: {integrity: sha512-lMnXA5KaRJidzW7gQmlo/SnX6D+AKk5GxHFcQtOaGOSJNmu/qcNZc1rGaO7K5qW52OvCLXtnWudR4cc/FvMpVQ==}
     engines: {node: '>=18'}
@@ -180,8 +189,21 @@ packages:
       zod:
         optional: true
 
+  '@ai-sdk/provider-utils@2.1.13':
+    resolution: {integrity: sha512-kLjqsfOdONr6DGcGEntFYM1niXz1H05vyZNf9OAzK+KKKc64izyP4/q/9HX7W4+6g8hm6BnmKxu8vkr6FSOqDg==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      zod: ^3.0.0
+    peerDependenciesMeta:
+      zod:
+        optional: true
+
   '@ai-sdk/provider@1.0.10':
     resolution: {integrity: sha512-pco8Zl9U0xwXI+nCLc0woMtxbvjU8hRmGTseAUiPHFLYAAL8trRPCukg69IDeinOvIeo1SmXxAIdWWPZOLb4Cg==}
+    engines: {node: '>=18'}
+
+  '@ai-sdk/provider@1.0.11':
+    resolution: {integrity: sha512-CPyImHGiT3svyfmvPvAFTianZzWFtm0qK82XjwlQIA1C3IQ2iku/PMQXi7aFyrX0TyMh3VTkJPB03tjU2VXVrw==}
     engines: {node: '>=18'}
 
   '@ai-sdk/react@1.1.21':
@@ -3504,6 +3526,12 @@ snapshots:
       '@ai-sdk/provider-utils': 2.1.11(zod@3.24.2)
       zod: 3.24.2
 
+  '@ai-sdk/perplexity@1.0.7(zod@3.24.2)':
+    dependencies:
+      '@ai-sdk/provider': 1.0.11
+      '@ai-sdk/provider-utils': 2.1.13(zod@3.24.2)
+      zod: 3.24.2
+
   '@ai-sdk/provider-utils@2.1.11(zod@3.24.2)':
     dependencies:
       '@ai-sdk/provider': 1.0.10
@@ -3513,7 +3541,20 @@ snapshots:
     optionalDependencies:
       zod: 3.24.2
 
+  '@ai-sdk/provider-utils@2.1.13(zod@3.24.2)':
+    dependencies:
+      '@ai-sdk/provider': 1.0.11
+      eventsource-parser: 3.0.0
+      nanoid: 3.3.8
+      secure-json-parse: 2.7.0
+    optionalDependencies:
+      zod: 3.24.2
+
   '@ai-sdk/provider@1.0.10':
+    dependencies:
+      json-schema: 0.4.0
+
+  '@ai-sdk/provider@1.0.11':
     dependencies:
       json-schema: 0.4.0
 
