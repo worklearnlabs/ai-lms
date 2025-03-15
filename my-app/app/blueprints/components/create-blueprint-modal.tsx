@@ -354,12 +354,13 @@ export function CreateBlueprintModal({
 
   // Load temporary blueprint data when provided
   useEffect(() => {
-    if (temporaryBlueprintId) {
+    if (temporaryBlueprintId && isOpen) {
       const loadTemporaryBlueprint = async () => {
         try {
           setIsLoading(true);
           console.log("%c[DEBUG] Loading blueprint", "background: #3498db; color: white; padding: 2px 4px; border-radius: 2px;", {
             id: temporaryBlueprintId,
+            isOpen: isOpen,
             timestamp: new Date().toISOString(),
           });
           
@@ -855,7 +856,7 @@ export function CreateBlueprintModal({
       
       loadTemporaryBlueprint();
     }
-  }, [temporaryBlueprintId]);
+  }, [temporaryBlueprintId, isOpen]);
   
   // Add logging to debug the tempBlueprintId
   useEffect(() => {
@@ -1370,6 +1371,11 @@ export function CreateBlueprintModal({
           
           // Move to review step
           setCurrentStep('review');
+        } catch (error) {
+          console.error("Error generating final blueprint:", error);
+          toast.error("Failed to generate final blueprint", {
+            description: "Please try again or contact support if the issue persists"
+          });
         } finally {
           setIsLoading(false);
         }
@@ -2449,72 +2455,20 @@ export function CreateBlueprintModal({
               </div>
             )}
             
-            {/* Review UI - kept from previous implementation */}
+            {/* Review UI - simplified to show only JSON data */}
             {currentStep === 'review' && finalData && (
-              <div className="flex flex-col p-8 h-full overflow-hidden">
-                <h3 className="text-lg font-semibold mb-5">Review Blueprint Data</h3>
-                
-                <div className="flex flex-col h-full overflow-hidden">
-                  <div className="space-y-4 mb-6">
-                    <div>
-                      <Label htmlFor="title" className="text-base">Title</Label>
-                      <Input 
-                        id="title"
-                        value={title || finalData.title}
-                        onChange={(e) => setTitle(e.target.value)}
-                        className="mt-1"
-                      />
-                    </div>
-                    
-                    <div>
-                      <Label htmlFor="search_query" className="text-base font-semibold text-primary">Generated Search Query</Label>
-                      <div className="text-sm p-3 border rounded-md mt-1 max-h-24 overflow-auto bg-muted/50">
-                        {finalData.search_query ? (
-                          finalData.search_query
-                        ) : (
-                          <span className="text-muted-foreground italic">
-                            Will be generated when blueprint is created
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="flex-1 overflow-hidden border rounded-md">
-                    <div className="bg-muted/50 p-3 flex items-center justify-between">
-                      <h4 className="font-medium">Blueprint JSON Data</h4>
-                      <div className="flex gap-2">
-                        <Button 
-                          type="button" 
-                          variant="outline" 
-                          size="sm" 
-                          onClick={() => {
-                            if (finalData) {
-                              navigator.clipboard.writeText(JSON.stringify(finalData, null, 2));
-                              toast.success("Copied to clipboard!");
-                            }
-                          }}
-                        >
-                          <Copy className="h-3.5 w-3.5 mr-1" />
-                          Copy
-                        </Button>
-                        {process.env.NODE_ENV === 'development' && (
-                          <Button 
-                            type="button" 
-                            variant="outline" 
-                            size="sm"
-                            onClick={() => debugBlueprint(true)}
-                          >
-                            Refresh Data
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                    <ScrollContainer className="p-4 h-[calc(100%-48px)]">
-                      {/* Blueprint JSON Data */}
-                      <pre className="text-xs font-mono whitespace-pre-wrap">
-                        {JSON.stringify(
-                          {
+              <div className="flex flex-col h-full overflow-hidden">
+                <div className="bg-slate-900 text-white font-mono flex-1 flex flex-col rounded-md overflow-hidden">
+                  <div className="sticky top-0 right-0 z-20 flex justify-between bg-slate-900/95 backdrop-blur-sm py-3 px-4 border-b border-slate-700">
+                    <h3 className="text-lg font-semibold text-white">Review Blueprint Data</h3>
+                    <div className="flex gap-2">
+                      <Button 
+                        type="button" 
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0 bg-slate-800 hover:bg-slate-700 text-slate-200"
+                        onClick={() => {
+                          const blueprintData = {
                             title: finalData.title,
                             search_query: finalData.search_query,
                             description: finalData.description,
@@ -2536,12 +2490,58 @@ export function CreateBlueprintModal({
                               temporary_id: tempBlueprintId,
                               created_id: createdBlueprintId,
                             }
-                          }, 
-                          null, 
-                          2
-                        )}
-                      </pre>
-                    </ScrollContainer>
+                          };
+                          navigator.clipboard.writeText(JSON.stringify(blueprintData, null, 2));
+                          toast.success("Copied to clipboard!");
+                        }}
+                      >
+                        <Copy className="h-4 w-4" />
+                      </Button>
+                      {process.env.NODE_ENV === 'development' && (
+                        <Button 
+                          type="button" 
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200"
+                          onClick={() => debugBlueprint(true)}
+                        >
+                          <RefreshCw className="h-4 w-4 mr-1" />
+                          Refresh
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <div className="overflow-auto p-4 flex-1 bg-slate-900 text-xs">
+                    <pre className="whitespace-pre-wrap">
+                      {JSON.stringify(
+                        {
+                          title: finalData.title,
+                          search_query: finalData.search_query,
+                          description: finalData.description,
+                          complexity: finalData.complexity,
+                          estimated_time: finalData.estimated_time,
+                          prerequisites: finalData.prerequisites,
+                          content: {
+                            questions: questions.map(q => ({
+                              id: q.id,
+                              title: q.title,
+                              content: q.content,
+                              response: responses[q.id] || ""
+                            })),
+                            responses
+                          },
+                          prompt,
+                          is_temporary: false,
+                          creation_info: {
+                            temporary_id: tempBlueprintId,
+                            created_id: createdBlueprintId,
+                          }
+                        }, 
+                        null, 
+                        2
+                      )}
+                    </pre>
                   </div>
                 </div>
               </div>
