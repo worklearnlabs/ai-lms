@@ -20,6 +20,7 @@ This document catalogs all SQL scripts that have been manually executed in the S
 | Blueprint Subtasks RLS Policies                  | blueprint_subtasks_rls               | RLS policies for blueprint subtasks                                                   | TBD          |
 | Blueprint Steps RLS Policies                     | blueprint_steps_rls                  | RLS policies for blueprint steps                                                      | TBD          |
 | Blueprints RLS Policies                          | blueprints_rls_main                  | Main RLS policies for the blueprints table                                            | 2025-03-13   |
+| Blueprint Delete Policies                        | blueprint_delete_policies            | RLS policies for blueprint deletion operations                                        | 2025-03-15   |
 | Enable Row-Level Security for Tables             | enable_rls_all_tables                | Enable RLS on all blueprint-related tables                                            | TBD          |
 | Blueprint Content Migration Function             | content_migration_function           | Function to migrate blueprint content from old to new schema                          | TBD          |
 | Create reasoning_message table                   | reasoning_message_table_creation     | Create the table for storing reasoning messages                                       | TBD          |
@@ -33,6 +34,7 @@ This document catalogs all SQL scripts that have been manually executed in the S
 | Temporary Blueprint Questions Policy             | temporary_blueprint_questions_policy | Create RLS policy to allow operations on blueprint questions for temporary blueprints | 2025-03-25   |
 | Blueprint Research Table                         | blueprint_research_table_creation    | Create the table for storing Perplexity API research data                             | TBD          |
 | Blueprint Research RLS Policies                  | blueprint_research_rls_policies      | RLS policies for the blueprint_research table                                         | TBD          |
+| Temporary Blueprint Cleanup                      | temporary_blueprint_cleanup          | Script to delete all temporary blueprints from the database                           | 2025-03-15   |
 
 ## Script Contents
 
@@ -775,6 +777,81 @@ COMMENT ON POLICY blueprint_research_owner_update ON public.blueprint_research I
   'Allow users to update research for blueprints they own';
 COMMENT ON POLICY blueprint_research_public_view ON public.blueprint_research IS
   'Allow users to view research for public blueprints';
+```
+
+### blueprint_delete_policies
+
+```sql
+-- Create a policy to allow deletion of temporary blueprints
+CREATE POLICY blueprint_temporary_delete ON public.blueprints
+  FOR DELETE
+  USING (is_temporary = true);
+
+-- Create explicit delete policy for owners
+CREATE POLICY blueprint_owner_delete ON public.blueprints
+  FOR DELETE
+  USING (user_id = auth.uid());
+```
+
+### temporary_blueprint_cleanup
+
+```sql
+-- Blueprint Temporary Records Cleanup
+-- This script deletes all blueprints flagged as is_temporary=true
+-- Use with caution as this will permanently remove data
+
+-- First, count and identify the temporary blueprints (for logging)
+WITH temp_blueprint_info AS (
+  SELECT
+    COUNT(*) as total_count,
+    MIN(created_at) as oldest_record,
+    MAX(created_at) as newest_record,
+    array_agg(id) as blueprint_ids
+  FROM public.blueprints
+  WHERE is_temporary = true
+)
+SELECT
+  'Found ' || total_count || ' temporary blueprints to clean up. ' ||
+  'Date range: ' || oldest_record || ' to ' || newest_record || '.' as cleanup_info,
+  blueprint_ids
+FROM temp_blueprint_info;
+
+-- Start a transaction block
+BEGIN;
+
+-- Delete related records from blueprint_questions first (if this table exists)
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'blueprint_questions'
+  ) THEN
+    DELETE FROM public.blueprint_questions
+    WHERE blueprint_id IN (
+      SELECT id FROM public.blueprints WHERE is_temporary = true
+    );
+
+    RAISE NOTICE 'Deleted related blueprint_questions records';
+  END IF;
+END
+$$;
+
+-- Now delete the temporary blueprints
+-- The deletion of related records in other tables should be handled by CASCADE constraints
+DELETE FROM public.blueprints
+WHERE is_temporary = true
+RETURNING id, title, created_at;
+
+-- Verify that all temporary blueprints have been deleted
+SELECT COUNT(*) as remaining_temporary_blueprints
+FROM public.blueprints
+WHERE is_temporary = true;
+
+-- Uncomment the next line to finalize the deletion:
+-- COMMIT;
+
+-- Or uncomment the next line to undo all changes:
+-- ROLLBACK;
 ```
 
 ## Maintenance Guidelines

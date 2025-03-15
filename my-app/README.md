@@ -105,7 +105,31 @@ The following documentation is available to help developers understand and work 
 
 - [Project Requirements](./REQUIREMENTS.md) - Comprehensive overview of the project requirements
 - [Supabase Integration Guide](./docs/supabase_integration_guide.md) - Guidelines for using Supabase
-- [AI Orchestration](./docs/ai_orchestration.md) - How the AI integration works
+- [AI Orchestration](./docs/ai-orchestrator.md) - How the AI integration works with fallback mechanisms
+- [Blueprint Creation Flow](./docs/blueprint_creation_flow.md) - Implementation plan for blueprint creation
+- [Blueprint Debugging System](./docs/blueprint_debugging.md) - Tools and techniques for debugging
+
+## Key Development Features
+
+### AI Orchestrator
+
+The system utilizes a sophisticated AI orchestrator that provides:
+
+- **Automatic Fallback**: Seamlessly switches between OpenAI, Anthropic, and Perplexity when a service is unavailable
+- **Service Health Monitoring**: Tracks availability of AI services in real-time
+- **Error Recovery**: Automatically restores service availability after timeout periods
+- **Graceful Degradation**: Provides informative error messages when all services fail
+
+### Debugging Tools
+
+For developers, the system includes:
+
+- **BlueprintDebugWindow**: A tabbed interface to inspect blueprint data and API flows
+- **API Flow Tracking**: Captures request/response data for all AI interactions
+- **Service Status Monitoring**: Real-time visibility into AI service availability
+- **Error Context**: Detailed information about what went wrong during AI operations
+
+To activate debug mode in development, use the "Debug" button in the Blueprint creation modal.
 
 ## License
 

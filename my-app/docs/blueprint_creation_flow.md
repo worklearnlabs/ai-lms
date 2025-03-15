@@ -316,7 +316,7 @@ As a user, I want to create a blueprint by simply providing a high-level prompt.
     - Prompt input for a high-level request.
     - Chat-like interface for multi-turn reasoning.
     - Final review screen displaying AI-generated blueprint title and search query.
-  - [ ] Integrate API calls to `/api/blueprints/reason` and `/api/blueprints`.
+  - [x] Integrate API calls to `/api/blueprints/reason` and `/api/blueprints`.
 - **Blueprint Page:**
   - [x] Design a split layout with a central pane for steps and right sidebar for details.
   - [x] Implement navigation between steps with left/right arrows in the sidebar.
@@ -325,25 +325,27 @@ As a user, I want to create a blueprint by simply providing a high-level prompt.
   - [x] In Flow Diagram View, integrate React Flow to dynamically display nodes and edges.
   - [x] Enable node selection to update the sidebar with step details.
   - [x] Support "General" view and step-specific views in the sidebar with clear navigation.
+  - [x] Implement debugging functionality with tabbed interface for Blueprint Data and API Flow tabs
+  - [x] Add API flow debugging to capture and display request/response data from AI services
   - [ ] Complete final UI polish for accessibility (focus states have been handled).
 - **Supabase Integration:**
-  - [ ] Use the existing Supabase client to subscribe to the `messages` table for real-time chat in the modal.
-  - [ ] Ensure proper user authentication and message association.
+  - [x] Use the existing Supabase client to subscribe to the `messages` table for real-time chat in the modal.
+  - [x] Ensure proper user authentication and message association.
 
 ### 6.2 Backend Development
 
 - **Reasoning Agent Endpoint:**
-  - [ ] Create `POST /api/blueprints/reason` to handle multi-turn Q&A.
-  - [ ] Integrate AI call to generate final JSON with `{ title, searchQuery }`.
+  - [x] Create `POST /api/blueprints/reason` to handle multi-turn Q&A.
+  - [x] Integrate AI call to generate final JSON with `{ title, searchQuery }`.
 - **Create Blueprint Endpoint:**
-  - [ ] Create `POST /api/blueprints` to insert a new blueprint record into Supabase.
+  - [x] Create `POST /api/blueprints` to insert a new blueprint record into Supabase.
 - **Research Agent Streaming Endpoint:**
-  - [ ] Create `POST /api/blueprints/generate` to stream implementation steps using the refined search query.
-  - [ ] Format each streaming chunk with step details.
+  - [x] Create `POST /api/blueprints/generate` to stream implementation steps using the refined search query.
+  - [x] Format each streaming chunk with step details.
 - **Optional: Blueprint Steps Table:**
-  - [ ] Define `blueprint_steps` table schema and integrate it with endpoints.
+  - [x] Define `blueprint_steps` table schema and integrate it with endpoints.
 - **Patch Endpoint:**
-  - [ ] Create `PATCH /api/blueprints/[id]` to update blueprint or step status.
+  - [x] Create `PATCH /api/blueprints/[id]` to update blueprint or step status.
 
 ### 6.3 Testing & Integration
 

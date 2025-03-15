@@ -11,6 +11,16 @@ import { Button } from "@/components/ui/button"
 import { CreateBlueprintModal } from "./components/create-blueprint-modal"
 import { blueprintApi } from "@/utils/blueprints-api"
 import { useSearchParams } from "next/navigation"
+import { Trash2 } from "lucide-react"
+import { 
+  Dialog, 
+  DialogContent, 
+  DialogHeader, 
+  DialogTitle, 
+  DialogDescription,
+  DialogFooter
+} from "@/components/ui/dialog"
+import { toast } from "sonner"
 
 // Define Blueprint interface locally
 interface Blueprint {
@@ -49,6 +59,10 @@ export default function BlueprintsPage() {
   const [isCreatingSample, setIsCreatingSample] = useState(false)
   const [temporaryBlueprintId, setTemporaryBlueprintId] = useState<string | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [selectedBlueprints, setSelectedBlueprints] = useState<string[]>([])
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false)
+  const [isDeletingMultiple, setIsDeletingMultiple] = useState(false)
   const searchParams = useSearchParams()
 
   // Log authentication status for debugging
@@ -331,6 +345,124 @@ export default function BlueprintsPage() {
     }
   }
 
+  // Handle bulk delete
+  const handleBulkDeleteClick = () => {
+    if (selectedBlueprints.length === 0) {
+      toast.warning("Please select at least one blueprint to delete");
+      return;
+    }
+    
+    setShowDeleteConfirmation(true);
+  };
+
+  // Handle the bulk delete after confirmation
+  const handleConfirmedBulkDeletion = async () => {
+    if (selectedBlueprints.length === 0) return;
+    
+    try {
+      setIsDeletingMultiple(true);
+      
+      // Create an array to track deletion results
+      const results = [];
+      
+      // Process each selected blueprint
+      for (const blueprintId of selectedBlueprints) {
+        // Find the blueprint title for better user feedback
+        const blueprint = blueprints.find(b => b.id === blueprintId);
+        const blueprintTitle = blueprint?.title || "Untitled";
+        
+        try {
+          // First delete related records
+          await blueprintApi.deleteBlueprint(blueprintId);
+          
+          results.push({
+            id: blueprintId,
+            title: blueprintTitle,
+            success: true
+          });
+        } catch (error) {
+          console.error(`Error deleting blueprint ${blueprintId}:`, error);
+          
+          results.push({
+            id: blueprintId,
+            title: blueprintTitle,
+            success: false,
+            error: error instanceof Error ? error.message : "Unknown error"
+          });
+        }
+      }
+      
+      // Refresh the blueprint list by reusing the existing useEffect
+      refreshBlueprints();
+      
+      // Count successes and failures
+      const successCount = results.filter(r => r.success).length;
+      const failureCount = results.length - successCount;
+      
+      // Create appropriate toast notification
+      if (failureCount === 0) {
+        toast.success(
+          `Successfully deleted ${successCount} blueprint${successCount !== 1 ? 's' : ''}`
+        );
+      } else if (successCount === 0) {
+        toast.error(`Failed to delete ${failureCount} blueprint${failureCount !== 1 ? 's' : ''}`);
+      } else {
+        toast.warning(
+          `Deleted ${successCount} blueprint${successCount !== 1 ? 's' : ''}, but failed to delete ${failureCount}`
+        );
+      }
+      
+      // Reset the selection state
+      setSelectedBlueprints([]);
+      
+    } catch (error) {
+      console.error("Error in bulk deletion:", error);
+      toast.error("Failed to delete some blueprints");
+    } finally {
+      setIsDeletingMultiple(false);
+      setShowDeleteConfirmation(false);
+    }
+  };
+
+  // Function to refresh blueprints - extract this from the useEffect for reuse
+  const refreshBlueprints = () => {
+    // Re-fetch blueprints data
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        const result = await blueprintApi.getBlueprints();
+        
+        if (!result.data || result.data.length === 0) {
+          setNoBlueprints(true);
+          setBlueprints([]);
+        } else {
+          setNoBlueprints(false);
+          setBlueprints(result.data || []);
+        }
+        
+        setError(null);
+      } catch (err) {
+        console.error("Error fetching blueprints:", err);
+        setError("Failed to load blueprints");
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchData();
+  };
+
+  // Cancel selection mode
+  const handleCancelSelection = () => {
+    setSelectionMode(false);
+    setSelectedBlueprints([]);
+  };
+
+  // Handle selection change from BlueprintsSection
+  const handleSelectionChange = (selectedIds: string[]) => {
+    setSelectedBlueprints(selectedIds);
+  };
+
   // Transform Blueprint to format expected by BlueprintsSection
   // Now include temporary blueprints but mark them specially
   const formattedBlueprints = blueprints.map(blueprint => ({
@@ -375,7 +507,35 @@ export default function BlueprintsPage() {
           <p className="text-muted-foreground mt-1">Create and manage your AI automation blueprints</p>
         </div>
         <div className="flex gap-2">
-          <CreateBlueprintButton />
+          {selectionMode ? (
+            <>
+              <Button 
+                variant="destructive" 
+                onClick={handleBulkDeleteClick}
+                disabled={selectedBlueprints.length === 0 || isDeletingMultiple}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete {selectedBlueprints.length > 0 ? `(${selectedBlueprints.length})` : ''}
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={handleCancelSelection}
+                disabled={isDeletingMultiple}
+              >
+                Cancel
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button 
+                variant="outline" 
+                onClick={() => setSelectionMode(true)}
+              >
+                Select
+              </Button>
+              <CreateBlueprintButton />
+            </>
+          )}
         </div>
       </div>
       
@@ -385,6 +545,37 @@ export default function BlueprintsPage() {
         onOpenChange={setIsModalOpen}
         temporaryBlueprintId={temporaryBlueprintId}
       />
+      
+      {/* Bulk Delete Confirmation Dialog */}
+      {showDeleteConfirmation && (
+        <Dialog open={showDeleteConfirmation} onOpenChange={setShowDeleteConfirmation}>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle>Delete {selectedBlueprints.length} Blueprints?</DialogTitle>
+              <DialogDescription>
+                Are you sure you want to delete {selectedBlueprints.length} selected blueprint{selectedBlueprints.length !== 1 ? 's' : ''}? 
+                This action cannot be undone and all associated data will be permanently removed.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button 
+                variant="outline" 
+                onClick={() => setShowDeleteConfirmation(false)}
+                disabled={isDeletingMultiple}
+              >
+                Cancel
+              </Button>
+              <Button 
+                variant="destructive"
+                onClick={handleConfirmedBulkDeletion}
+                disabled={isDeletingMultiple}
+              >
+                {isDeletingMultiple ? 'Deleting...' : 'Delete'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
       
       <Card className="rounded-xl">
         <CardHeader className="px-6 py-4 border-b">
@@ -417,7 +608,7 @@ export default function BlueprintsPage() {
                 You don&apos;t have any blueprints yet. Get started by creating your first blueprint.
               </p>
               {process.env.NODE_ENV === 'development' && (
-                <div className="mt-4">
+                <div className="mt-4 flex flex-col gap-2">
                   <Button 
                     variant="outline" 
                     onClick={createSampleBlueprint} 
@@ -440,7 +631,12 @@ export default function BlueprintsPage() {
               )}
             </div>
           ) : (
-            <BlueprintsSection blueprints={formattedBlueprints} onBlueprintClick={handleBlueprintClick} />
+            <BlueprintsSection 
+              blueprints={formattedBlueprints} 
+              onBlueprintClick={handleBlueprintClick}
+              onSelectionChange={handleSelectionChange}
+              selectionEnabled={selectionMode} 
+            />
           )}
         </CardContent>
       </Card>

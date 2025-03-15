@@ -43,6 +43,9 @@ import { post } from '@/utils/fetch-wrapper';
 // Import BlueprintDebugWindow at the top of the file
 import { BlueprintDebugWindow } from "@/components/BlueprintDebugWindow";
 
+// Import supabase
+import { createClientSupabase } from '@/utils/supabase'
+
 interface CreateBlueprintModalProps {
   triggerButton?: React.ReactNode;
   isOpen?: boolean;
@@ -192,6 +195,9 @@ export function CreateBlueprintModal({
   // Fix the apiDebugData state to include the setter
   const [apiDebugData, setApiDebugData] = useState({});
   
+  // Add state for delete debug information
+  const [deleteDebugData, setDeleteDebugData] = useState<any>(null);
+  
   // Function to copy debug results to clipboard
   const copyDebugToClipboard = () => {
     if (!debugResults) return;
@@ -209,6 +215,21 @@ export function CreateBlueprintModal({
       .catch((error) => {
         console.error("Failed to copy debug data:", error);
         toast.error("Failed to copy debug data");
+      });
+  };
+  
+  // Add a function to copy delete debug data to clipboard
+  const copyDeleteDebugToClipboard = () => {
+    if (!deleteDebugData) return;
+    
+    const debugString = JSON.stringify(deleteDebugData, null, 2);
+    navigator.clipboard.writeText(debugString)
+      .then(() => {
+        toast.success("Debug data copied to clipboard");
+      })
+      .catch((err) => {
+        console.error("Failed to copy debug data:", err);
+        toast.error("Failed to copy debug data to clipboard");
       });
   };
   
@@ -699,7 +720,6 @@ export function CreateBlueprintModal({
               headers: {
                 'Cache-Control': 'no-cache, no-store, must-revalidate',
                 'Pragma': 'no-cache',
-                'X-Requested-With': 'XMLHttpRequest',
                 'X-Debug-Client': 'create-blueprint-modal-load'
               }
             });
@@ -1580,6 +1600,9 @@ export function CreateBlueprintModal({
     
     // Open the confirmation dialog instead of using window.confirm
     setShowDeleteConfirmation(true);
+    
+    // Reset any previous debug data
+    setDeleteDebugData(null);
   };
   
   // Add a separate function to handle the actual deletion after confirmation
@@ -1589,27 +1612,161 @@ export function CreateBlueprintModal({
     setIsLoading(true);
     setShowDeleteConfirmation(false);
     
+    // Show debug panel before making the request
+    setIsDebugOpen(true);
+    
+    // Get the blueprint title first for better debugging context
+    let blueprintTitle = "Unknown";
+    
+    // Try to get the blueprint title from the form state if available
+    if (title) {
+      blueprintTitle = title;
+    }
+    
+    // Create debug info object
+    const debugInfo: any = {
+      timestamp: new Date().toISOString(),
+      blueprint_id: tempBlueprintId,
+      blueprint_title: blueprintTitle,
+      request: {
+        url: `/api/blueprints/${tempBlueprintId}`,
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include'
+      }
+    };
+    
     try {
+      // Log the request for debugging
+      console.log(`[DELETE DEBUG] Attempting to delete blueprint: ${blueprintTitle} (${tempBlueprintId})`);
+      
+      // Set initial debug data so user can see request is in progress
+      setDeleteDebugData({...debugInfo, status: 'request_in_progress'});
+      
       const response = await fetch(`/api/blueprints/${tempBlueprintId}`, {
         method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json'
+        },
         credentials: 'include'
       });
       
-      if (response.ok) {
-        toast.success("Blueprint deleted successfully");
-        
-        // Close the modal after deletion
-        if (externalOnOpenChange) {
-          externalOnOpenChange(false);
-        } else {
-          setInternalIsOpen(false);
-        }
-      } else {
-        const errorData = await response.json();
-        throw new Error(errorData.error || `Failed to delete blueprint: ${response.status}`);
+      // Add response to debug info
+      debugInfo.response = {
+        status: response.status,
+        statusText: response.statusText,
+        headers: {}
+      };
+      
+      // Get headers for debugging
+      response.headers.forEach((value, key) => {
+        debugInfo.response.headers[key] = value;
+      });
+      
+      // Get response body as text first for debugging
+      const responseText = await response.text();
+      debugInfo.response.rawText = responseText;
+      
+      // Try to parse as JSON if possible
+      let jsonData = null;
+      try {
+        jsonData = JSON.parse(responseText);
+        debugInfo.response.body = jsonData;
+      } catch (parseError) {
+        debugInfo.response.body = null;
+        debugInfo.response.parseError = "Failed to parse response as JSON";
       }
+      
+      // Initial success based on API response
+      const initialSuccess = response.ok && (
+        response.status === 204 || 
+        (jsonData && (jsonData.success === true || jsonData.deleted === true))
+      );
+      
+      debugInfo.api_response_indicates_success = initialSuccess;
+      
+      // Now verify if the blueprint was ACTUALLY deleted by checking if it still exists
+      let verifiedDeleted = false;
+      let verificationResponse = null;
+      
+      try {
+        // Wait a short time to allow backend processing
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Try to fetch the blueprint to see if it still exists
+        const verifyResponse = await fetch(`/api/blueprints/${tempBlueprintId}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          credentials: 'include'
+        });
+        
+        verificationResponse = {
+          status: verifyResponse.status,
+          statusText: verifyResponse.statusText
+        };
+        
+        // If we get a 404, the blueprint was deleted successfully
+        // If we get a 200, the blueprint still exists
+        verifiedDeleted = verifyResponse.status === 404;
+        
+        // Add verification data
+        if (verifyResponse.status === 200) {
+          // Blueprint still exists
+          try {
+            const verifyData = await verifyResponse.json();
+            verificationResponse = {
+              ...verificationResponse,
+              data: {
+                exists: true,
+                title: verifyData.title || "Unknown"
+              }
+            };
+          } catch (e) {
+            verificationResponse = {
+              ...verificationResponse,
+              parseError: "Could not parse verification response"
+            };
+          }
+        }
+      } catch (verifyError) {
+        verificationResponse = {
+          error: verifyError instanceof Error ? verifyError.message : String(verifyError)
+        };
+      }
+      
+      // Add verification results to debug info
+      debugInfo.verification = {
+        method: "Fetch blueprint after delete",
+        verified_deleted: verifiedDeleted,
+        response: verificationResponse
+      };
+      
+      // Final success is based on both API response AND verification
+      debugInfo.success = verifiedDeleted;
+      
+      // Update UI based on verification, not just API response
+      setDeleteDebugData(debugInfo);
+      
+      if (verifiedDeleted) {
+        toast.success("Blueprint deleted successfully");
+      } else {
+        toast.error("Delete operation failed verification", { 
+          description: "API reported success but blueprint still exists" 
+        });
+      }
+      
     } catch (error) {
-      console.error("Error deleting blueprint:", error);
+      // Handle errors
+      debugInfo.success = false;
+      debugInfo.networkError = error instanceof Error ? error.message : String(error);
+      
+      setDeleteDebugData(debugInfo);
+      console.error("[DELETE DEBUG] Error deleting blueprint:", error, debugInfo);
+      
       toast.error("Failed to delete blueprint", {
         description: error instanceof Error ? error.message : "Unknown error occurred"
       });
@@ -2391,17 +2548,114 @@ export function CreateBlueprintModal({
                 let parsedData;
                 try {
                   parsedData = JSON.parse(debugResults);
-                } catch (e) {
+                } catch (_) {
                   parsedData = { message: debugResults };
                 }
                 
                 return (
-                  <BlueprintDebugWindow
-                    blueprintData={parsedData}
-                    apiDebugData={apiDebugData}
-                    onRefresh={() => debugBlueprint(true)}
-                    isLoading={isLoading}
-                  />
+                  <div className="absolute inset-0 bg-background/95 backdrop-blur-sm z-50 p-8 overflow-auto">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-lg font-semibold">Debug Information</h3>
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => setIsDebugOpen(false)}
+                      >
+                        Close Debug
+                      </Button>
+                    </div>
+                    
+                    <div className="border rounded-md overflow-hidden">
+                      <div className="flex border-b">
+                        <button 
+                          className={`px-4 py-2 text-sm font-medium ${!deleteDebugData ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}
+                          onClick={() => debugBlueprint(true)}
+                        >
+                          Blueprint Data
+                        </button>
+                        <button 
+                          className={`px-4 py-2 text-sm font-medium ${deleteDebugData ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}
+                          onClick={() => setIsDebugOpen(true)} // Just show the delete debug data tab
+                        >
+                          Delete Debug
+                        </button>
+                      </div>
+                      
+                      {!deleteDebugData ? (
+                        // Display blueprint data
+                        <BlueprintDebugWindow
+                          blueprintData={parsedData}
+                          apiDebugData={apiDebugData}
+                          onRefresh={() => debugBlueprint(true)}
+                          isLoading={isLoading}
+                        />
+                      ) : (
+                        // Display delete operation debug data
+                        <div className="p-4 bg-black text-green-400 font-mono text-sm overflow-auto max-h-[70vh]">
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="text-yellow-300">DELETE OPERATION DEBUG</span>
+                            <Button 
+                              onClick={copyDeleteDebugToClipboard}
+                              variant="outline" 
+                              size="sm"
+                              className="h-7 px-2 text-xs"
+                            >
+                              <Copy className="h-3.5 w-3.5 mr-1" />
+                              Copy Debug Data
+                            </Button>
+                          </div>
+                          <div className="mb-4">
+                            <span className="text-blue-300">Status:</span> {
+                              deleteDebugData.status === 'request_in_progress' 
+                                ? 'REQUEST IN PROGRESS' 
+                                : (deleteDebugData.success 
+                                  ? 'SUCCESS (VERIFIED DELETED)' 
+                                  : deleteDebugData.api_response_indicates_success 
+                                    ? 'FAILURE (API REPORTED SUCCESS BUT BLUEPRINT STILL EXISTS)'
+                                    : 'FAILED')
+                            }
+                          </div>
+                          <div className="mb-4">
+                            <span className="text-blue-300">Blueprint:</span> {deleteDebugData.blueprint_title} ({deleteDebugData.blueprint_id})
+                          </div>
+                          <pre className="whitespace-pre-wrap overflow-auto">
+                            {JSON.stringify(deleteDebugData, null, 2)}
+                          </pre>
+                          
+                          <div className="mt-6 flex gap-4">
+                            <Button 
+                              onClick={() => setIsDebugOpen(false)}
+                              variant="outline"
+                              size="sm"
+                            >
+                              Close Debugger
+                            </Button>
+                            
+                            <Button 
+                              onClick={() => window.location.href = '/blueprints'}
+                              variant="default"
+                              size="sm"
+                            >
+                              Reload Blueprints Page
+                            </Button>
+                            
+                            <Button 
+                              onClick={() => {
+                                // Try deletion again with the same ID
+                                if (tempBlueprintId) {
+                                  handleConfirmedDeletion();
+                                }
+                              }}
+                              variant="default"
+                              size="sm"
+                            >
+                              Retry Delete
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 );
               })()}
             </>
