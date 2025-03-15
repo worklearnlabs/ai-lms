@@ -105,6 +105,18 @@ export function CreateBlueprintModal({
   const [promptChanged, setPromptChanged] = useState(false);
   const [answerLength, setAnswerLength] = useState<'short' | 'medium' | 'long'>('medium');
   
+  // Cache configuration
+  const CACHE_EXPIRY_TIME = 30 * 60 * 1000; // 30 minutes in milliseconds
+  
+  // Blueprint data cache
+  const [cachedBlueprints, setCachedBlueprints] = useState<{
+    [key: string]: {
+      data: any; // Blueprint data
+      questions?: any; // Questions data
+      timestamp: number;
+    }
+  }>({});
+  
   // Declare tempBlueprintId state variable here
   const [tempBlueprintId, setTempBlueprintId] = useState<string | null>(temporaryBlueprintId || null);
   
@@ -356,6 +368,149 @@ export function CreateBlueprintModal({
   useEffect(() => {
     if (temporaryBlueprintId && isOpen) {
       const loadTemporaryBlueprint = async () => {
+        // Declare cache object to store blueprint and questions data
+        let cacheObject: {
+          data: any;
+          questions?: any;
+          timestamp: number;
+        } | null = null;
+        
+        // Define the blueprint data interface first
+        interface BlueprintData {
+          id?: string;
+          title?: string;
+          prompt?: string;
+          search_query?: string;
+          description?: string;
+          details?: string;
+          is_temporary?: boolean;
+          content?: {
+            questions?: Array<{
+              id: number;
+              title: string;
+              content: string;
+            }>;
+            responses?: Record<string, string>;
+          };
+          complexity?: 'beginner' | 'intermediate' | 'advanced';
+          estimated_time?: string;
+          prerequisites?: string[];
+        }
+        
+        // Define the processLoadedBlueprint function, now with the BlueprintData type available
+        const processLoadedBlueprint = (data: BlueprintData) => {
+          setTitle(data.title || "");
+          setPrompt(data.prompt || "");
+          
+          // Set description from either field, prioritizing 'details' as that's what's in the database
+          setDescription(data.details || data.description || "");
+          
+          // Store the initial prompt to track changes later
+          setInitialPrompt(data.prompt || "");
+          
+          // Mark this as an existing blueprint
+          setIsExistingBlueprint(true);
+          setPromptChanged(false);
+          
+          // Force navigation to conversation step for existing blueprints
+          // This implements the requirement to go to the second slide for existing blueprints
+          console.log("Navigating to conversation step for existing blueprint");
+          
+          // Use a small timeout to ensure this happens after all state is set
+          setTimeout(() => {
+            setCurrentStep('conversation');
+          }, 50);
+          
+          // Log the origin information to help with debugging
+          console.log("Loaded blueprint details:", {
+            title: data.title,
+            prompt: data.prompt,
+            description: data.details || data.description,
+            hasSearchQuery: !!data.search_query,
+            hasQuestions: !!(data.content && data.content.questions),
+            hasResponses: !!(data.content && data.content.responses),
+            responseCount: data.content?.responses ? Object.keys(data.content.responses).length : 0,
+            is_temporary: data.is_temporary
+          });
+          
+          // Show a toast to inform the user we've loaded their draft
+          toast.info("Draft blueprint loaded", {
+            description: "Continuing from where you left off"
+          });
+          
+          // If there's a search_query, set the final data
+          if (data.search_query) {
+            setFinalData({
+              title: data.title || "",
+              search_query: data.search_query,
+              description: data.description || data.details || "",
+              complexity: data.complexity,
+              estimated_time: data.estimated_time,
+              prerequisites: data.prerequisites || []
+            });
+            
+            // We'll delay this navigation to ensure we go to the conversation step first
+            // then only move to review after a brief delay
+            setTimeout(() => {
+              // Only navigate to review if we're already on the conversation step
+              if (currentStep === 'conversation') {
+                setCurrentStep('review');
+              }
+            }, 300);
+          }
+          
+          // For temporary blueprints with questions, go to the conversation step
+          else if (data.is_temporary && data.content && data.content.questions && data.content.questions.length > 0) {
+            console.log("Temporary blueprint has questions - moving to conversation step");
+            setCurrentStep('conversation');
+          }
+          
+          // If there are questions and responses in the content, load them
+          if (data.content && data.content.questions) {
+            setQuestions(data.content.questions);
+            
+            // Initialize question status map
+            const initialStatus = data.content.questions.reduce((acc: QuestionStatusMap, q: { id: number; title: string; content: string }) => {
+              acc[q.id] = "pending";
+              return acc;
+            }, {});
+            
+            setQuestionStatus(initialStatus);
+            
+            // Set the first question as active and clear the response field
+            setActiveQuestionIndex(0);
+            setCurrentResponse("");
+            
+            console.log('Questions processed and ready:', data.content.questions.length);
+          }
+          
+          if (data.content && data.content.responses) {
+            setResponses(data.content.responses);
+            
+            // Parse the status from responses - if a response exists for a question, mark it as complete
+            if (data.content.questions) {
+              const questionStatusMap: QuestionStatusMap = {};
+              
+              data.content.questions.forEach(question => {
+                const hasResponse = data.content?.responses && 
+                                    data.content.responses[question.id] !== undefined;
+                
+                questionStatusMap[question.id] = hasResponse ? "complete" : "pending";
+              });
+              
+              setQuestionStatus(questionStatusMap);
+              
+              // Set initial response if we have questions and responses
+              if (data.content.questions.length > 0) {
+                const firstQuestion = data.content.questions[0];
+                if (data.content.responses[firstQuestion.id]) {
+                  setCurrentResponse(data.content.responses[firstQuestion.id]);
+                }
+              }
+            }
+          }
+        };
+        
         try {
           setIsLoading(true);
           console.log("%c[DEBUG] Loading blueprint", "background: #3498db; color: white; padding: 2px 4px; border-radius: 2px;", {
@@ -363,6 +518,58 @@ export function CreateBlueprintModal({
             isOpen: isOpen,
             timestamp: new Date().toISOString(),
           });
+          
+          // Check if we have this blueprint in cache and if it's still valid
+          const cached = cachedBlueprints[temporaryBlueprintId];
+          const now = Date.now();
+          
+          if (cached && now - cached.timestamp < CACHE_EXPIRY_TIME) {
+            console.log("%c[DEBUG] Using cached blueprint data", "background: #2ecc71; color: white; padding: 2px 4px; border-radius: 2px;", {
+              id: temporaryBlueprintId,
+              cacheAge: `${Math.round((now - cached.timestamp) / 1000)}s old`,
+            });
+            
+            // Use cached blueprint data
+            processLoadedBlueprint(cached.data);
+            
+            // If we have cached questions too, use them
+            if (cached.questions) {
+              console.log("%c[DEBUG] Using cached questions data", "background: #2ecc71; color: white; padding: 2px 4px; border-radius: 2px;");
+              
+              if (cached.questions.questions && Array.isArray(cached.questions.questions)) {
+                setQuestions(cached.questions.questions);
+                
+                if (cached.questions.responses) {
+                  setResponses(cached.questions.responses);
+                  
+                  // Parse the status from responses
+                  const questionStatusMap: QuestionStatusMap = {};
+                  cached.questions.questions.forEach((question: { id: number }) => {
+                    const hasResponse = !!cached.questions.responses[question.id];
+                    questionStatusMap[question.id] = hasResponse ? "complete" : "pending";
+                  });
+                  setQuestionStatus(questionStatusMap);
+                  
+                  // Find the first incomplete question, or default to the first question
+                  const firstIncompleteIndex = cached.questions.questions.findIndex(
+                    (q: { id: number }) => !cached.questions.responses[q.id]
+                  );
+                  
+                  const newActiveIndex = firstIncompleteIndex >= 0 ? firstIncompleteIndex : 0;
+                  setActiveQuestionIndex(newActiveIndex);
+                  
+                  // Set current response based on active question
+                  if (cached.questions.questions[newActiveIndex]) {
+                    const activeQuestionId = cached.questions.questions[newActiveIndex].id;
+                    setCurrentResponse(cached.questions.responses[activeQuestionId] || "");
+                  }
+                }
+              }
+            }
+            
+            setIsLoading(false);
+            return; // Exit early, we're using cached data
+          }
           
           // Helper function to start a fresh blueprint
           const startFreshBlueprint = (title: string, description: string) => {
@@ -379,142 +586,6 @@ export function CreateBlueprintModal({
             toast.info(title, {
               description: description
             });
-          };
-          
-          // Define the blueprint data interface
-          interface BlueprintData {
-            id?: string;
-            title?: string;
-            prompt?: string;
-            search_query?: string;
-            description?: string;
-            details?: string;
-            is_temporary?: boolean;
-            content?: {
-              questions?: Array<{
-                id: number;
-                title: string;
-                content: string;
-              }>;
-              responses?: Record<string, string>;
-            };
-            complexity?: 'beginner' | 'intermediate' | 'advanced';
-            estimated_time?: string;
-            prerequisites?: string[];
-          }
-          
-          // Function to process loaded blueprint
-          const processLoadedBlueprint = (data: BlueprintData) => {
-            setTitle(data.title || "");
-            setPrompt(data.prompt || "");
-            
-            // Set description from either field, prioritizing 'details' as that's what's in the database
-            setDescription(data.details || data.description || "");
-            
-            // Store the initial prompt to track changes later
-            setInitialPrompt(data.prompt || "");
-            
-            // Mark this as an existing blueprint
-            setIsExistingBlueprint(true);
-            setPromptChanged(false);
-            
-            // Force navigation to conversation step for existing blueprints
-            // This implements the requirement to go to the second slide for existing blueprints
-            console.log("Navigating to conversation step for existing blueprint");
-            
-            // Use a small timeout to ensure this happens after all state is set
-            setTimeout(() => {
-              setCurrentStep('conversation');
-            }, 50);
-            
-            // Log the origin information to help with debugging
-            console.log("Loaded blueprint details:", {
-              title: data.title,
-              prompt: data.prompt,
-              description: data.details || data.description,
-              hasSearchQuery: !!data.search_query,
-              hasQuestions: !!(data.content && data.content.questions),
-              hasResponses: !!(data.content && data.content.responses),
-              responseCount: data.content?.responses ? Object.keys(data.content.responses).length : 0,
-              is_temporary: data.is_temporary
-            });
-            
-            // Show a toast to inform the user we've loaded their draft
-            toast.info("Draft blueprint loaded", {
-              description: "Continuing from where you left off"
-            });
-            
-            // If there's a search_query, set the final data
-            if (data.search_query) {
-              setFinalData({
-                title: data.title || "",
-                search_query: data.search_query,
-                description: data.description || data.details || "",
-                complexity: data.complexity,
-                estimated_time: data.estimated_time,
-                prerequisites: data.prerequisites || []
-              });
-              
-              // We'll delay this navigation to ensure we go to the conversation step first
-              // then only move to review after a brief delay
-              setTimeout(() => {
-                // Only navigate to review if we're already on the conversation step
-                if (currentStep === 'conversation') {
-                  setCurrentStep('review');
-                }
-              }, 300);
-            }
-            
-            // For temporary blueprints with questions, go to the conversation step
-            else if (data.is_temporary && data.content && data.content.questions && data.content.questions.length > 0) {
-              console.log("Temporary blueprint has questions - moving to conversation step");
-              setCurrentStep('conversation');
-            }
-            
-            // If there are questions and responses in the content, load them
-            if (data.content && data.content.questions) {
-              setQuestions(data.content.questions);
-              
-              // Initialize question status map
-              const initialStatus = data.content.questions.reduce((acc: QuestionStatusMap, q: { id: number; title: string; content: string }) => {
-                acc[q.id] = "pending";
-                return acc;
-              }, {});
-              
-              setQuestionStatus(initialStatus);
-              
-              // Set the first question as active and clear the response field
-              setActiveQuestionIndex(0);
-              setCurrentResponse("");
-              
-              console.log('Questions processed and ready:', data.content.questions.length);
-            }
-            
-            if (data.content && data.content.responses) {
-              setResponses(data.content.responses);
-              
-              // Parse the status from responses - if a response exists for a question, mark it as complete
-              if (data.content.questions) {
-                const questionStatusMap: QuestionStatusMap = {};
-                
-                data.content.questions.forEach(question => {
-                  const hasResponse = data.content?.responses && 
-                                      data.content.responses[question.id] !== undefined;
-                  
-                  questionStatusMap[question.id] = hasResponse ? "complete" : "pending";
-                });
-                
-                setQuestionStatus(questionStatusMap);
-                
-                // Set initial response if we have questions and responses
-                if (data.content.questions.length > 0) {
-                  const firstQuestion = data.content.questions[0];
-                  if (data.content.responses[firstQuestion.id]) {
-                    setCurrentResponse(data.content.responses[firstQuestion.id]);
-                  }
-                }
-              }
-            }
           };
           
           // First validate the UUID format
@@ -735,7 +806,14 @@ export function CreateBlueprintModal({
           // Also set the temporary blueprint ID in state to match what was loaded
           setTempBlueprintId(temporaryBlueprintId);
           
+          // Process the loaded blueprint
           processLoadedBlueprint(data);
+          
+          // Start building the cache object
+          cacheObject = {
+            data: data,
+            timestamp: Date.now()
+          };
           
           // Check for questions data for this blueprint
           try {
@@ -771,6 +849,9 @@ export function CreateBlueprintModal({
                 has_responses: !!(questionsData.responses && typeof questionsData.responses === 'object'),
                 response_count: questionsData.responses ? Object.keys(questionsData.responses).length : 0
               });
+              
+              // Add questions data to the cache object
+              cacheObject.questions = questionsData;
               
               // Only update questions if we actually got some from the API
               if (questionsData.questions && Array.isArray(questionsData.questions) && questionsData.questions.length > 0) {
@@ -850,6 +931,17 @@ export function CreateBlueprintModal({
             description: "Starting a new blueprint creation process"
           });
         } finally {
+          // Update the cache if we have new data
+          if (cacheObject?.data && temporaryBlueprintId) {
+            console.log("%c[DEBUG] Saving blueprint data to cache", "background: #3498db; color: white; padding: 2px 4px; border-radius: 2px;");
+            // Ensure cacheObject is not null when updating the cache
+            const cacheObjectToSave = cacheObject; // Make a separate non-null reference
+            setCachedBlueprints(prev => ({
+              ...prev,
+              [temporaryBlueprintId]: cacheObjectToSave
+            }));
+          }
+          
           setIsLoading(false);
         }
       };
