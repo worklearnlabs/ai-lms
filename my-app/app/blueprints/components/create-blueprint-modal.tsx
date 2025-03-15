@@ -36,6 +36,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 
 // Add this import at the top of the file
 import { post } from '@/utils/fetch-wrapper';
@@ -197,6 +198,14 @@ export function CreateBlueprintModal({
   
   // Add state for delete debug information
   const [deleteDebugData, setDeleteDebugData] = useState<any>(null);
+  
+  // Add missing debug state variables
+  const [creationDebugData, setCreationDebugData] = useState<{
+    blueprintData?: any;
+    responseData?: any;
+    error?: string | null;
+  } | null>(null);
+  const [isDebugVisible, setIsDebugVisible] = useState(false);
   
   // Function to copy debug results to clipboard
   const copyDebugToClipboard = () => {
@@ -464,6 +473,20 @@ export function CreateBlueprintModal({
             // If there are questions and responses in the content, load them
             if (data.content && data.content.questions) {
               setQuestions(data.content.questions);
+              
+              // Initialize question status map
+              const initialStatus = data.content.questions.reduce((acc: QuestionStatusMap, q: { id: number; title: string; content: string }) => {
+                acc[q.id] = "pending";
+                return acc;
+              }, {});
+              
+              setQuestionStatus(initialStatus);
+              
+              // Set the first question as active and clear the response field
+              setActiveQuestionIndex(0);
+              setCurrentResponse("");
+              
+              console.log('Questions processed and ready:', data.content.questions.length);
             }
             
             if (data.content && data.content.responses) {
@@ -481,6 +504,14 @@ export function CreateBlueprintModal({
                 });
                 
                 setQuestionStatus(questionStatusMap);
+                
+                // Set initial response if we have questions and responses
+                if (data.content.questions.length > 0) {
+                  const firstQuestion = data.content.questions[0];
+                  if (data.content.responses[firstQuestion.id]) {
+                    setCurrentResponse(data.content.responses[firstQuestion.id]);
+                  }
+                }
               }
             }
           };
@@ -767,6 +798,13 @@ export function CreateBlueprintModal({
                   console.log(`[DEBUG] Setting active question index to ${newActiveIndex}`);
                   setActiveQuestionIndex(newActiveIndex);
                   
+                  // Set current response based on active question
+                  if (questionsData.questions[newActiveIndex]) {
+                    const activeQuestionId = questionsData.questions[newActiveIndex].id;
+                    setCurrentResponse(questionsData.responses[activeQuestionId] || "");
+                    console.log(`[DEBUG] Setting current response for question ${activeQuestionId}`);
+                  }
+                  
                   // Update current step to conversation if we have questions
                   if (questionsData.questions.length > 0) {
                     setCurrentStep('conversation');
@@ -991,19 +1029,28 @@ export function CreateBlueprintModal({
     toast.loading("Creating your blueprint...", { id: "create-blueprint" });
     
     try {
+      // DEBUGGING: Log all involved records for troubleshooting
+      console.log("DEBUGGING BLUEPRINT CREATION PROCESS:");
+      console.log("Temporary Blueprint ID:", tempBlueprintId);
+      console.log("Created Blueprint ID (if updating):", createdBlueprintId);
+      console.log("Final Data:", finalData);
+      console.log("Question Count:", questions.length);
+      console.log("Response Count:", Object.keys(responses).length);
+      
       // First, check for any required fields and gather data
       const isUpdating = !!createdBlueprintId;
       
       // Use either the created ID or the temporary one
       const blueprintId = createdBlueprintId || tempBlueprintId;
+      console.log(`Using blueprint ID: ${blueprintId} (${isUpdating ? 'updating existing' : 'converting temporary'})`);
       
-      // Create the endpoint URL
-      const endpoint = isUpdating 
-        ? `/api/blueprints/${blueprintId}`
-        : '/api/blueprints';
+      // Create the endpoint URL - we'll always use the ID endpoint to avoid creating new records
+      // FIX: Always use the ID-based endpoint to prevent creating duplicate records
+      const endpoint = `/api/blueprints/${blueprintId}`;
       
-      // Use PATCH for updating, POST for creating
-      const method = isUpdating ? 'PATCH' : 'POST';
+      // Use PATCH for updating (ensures we're updating instead of creating new records)
+      const method = 'PATCH';
+      console.log(`Using method ${method} to endpoint ${endpoint}`);
       
       // Get the user's prompt for comparison
       if (!prompt) {
@@ -1039,54 +1086,64 @@ export function CreateBlueprintModal({
         content,
         complexity: finalData.complexity,
         estimated_time: finalData.estimated_time,
-        is_temporary: false,
+        is_temporary: false, // Set to false to make it a permanent blueprint
       };
       
       console.log(`Sending ${method} request to ${endpoint}:`, blueprintData);
       
-      // Create or update the blueprint
+      // Use fetch to send the request to the API
       const response = await fetch(endpoint, {
         method,
         headers: {
           'Content-Type': 'application/json',
         },
-        credentials: 'include',
         body: JSON.stringify(blueprintData),
       });
       
       if (!response.ok) {
-        throw new Error(`Failed to ${isUpdating ? 'update' : 'create'} blueprint: ${response.status}`);
+        const error = await response.json();
+        console.error('Error creating blueprint:', error);
+        throw new Error(error.error || 'Failed to create blueprint');
       }
       
+      // Parse the response
       const data = await response.json();
-      console.log(`Blueprint ${isUpdating ? 'updated' : 'created'}:`, data);
+      console.log('Blueprint successfully created/updated:', data);
       
-      // If we're creating a new blueprint, update the ID
-      if (!isUpdating && data) {
+      // For debugging purposes, show the response data
+      setIsDebugVisible(true);
+      setCreationDebugData({
+        blueprintData,
+        responseData: data,
+        error: null
+      });
+      
+      // Set the created blueprint ID if it's not already set
+      if (!createdBlueprintId) {
         setCreatedBlueprintId(data.id);
       }
       
-      // Show success message
-      toast.success(`Blueprint ${isUpdating ? 'updated' : 'created'} successfully!`, {
-        id: "create-blueprint"
-      });
+      toast.success("Blueprint created successfully", { id: "create-blueprint" });
       
+      // DEBUGGING: Prevent auto-closing and redirecting for now to allow debugging
+      console.log("DEBUGGING: Keeping modal open for debugging. Normally would redirect.");
+      
+      /* 
+      // Comment out auto-redirect for debugging purposes
       // Close the modal and redirect to the blueprint page
-      if (externalOnOpenChange) {
-        externalOnOpenChange(false);
-      }
+      setIsVisible(false);
+      router.push(`/blueprints/${data.id}`);
+      */
       
-      // Redirect to the blueprint page after a short delay
-      setTimeout(() => {
-        if (data && data.id) {
-          window.location.href = `/blueprints/${data.id}`;
-        }
-      }, 500);
     } catch (error) {
-      console.error('Error creating blueprint:', error);
-      toast.error(`Failed to create blueprint: ${error instanceof Error ? error.message : 'Unknown error'}`, {
-        id: "create-blueprint"
+      console.error('Error in handleCreateBlueprint:', error);
+      setCreationDebugData({
+        blueprintData,
+        responseData: null,
+        error: error instanceof Error ? error.message : String(error)
       });
+      setIsDebugVisible(true);
+      toast.error(error instanceof Error ? error.message : 'Failed to create blueprint', { id: "create-blueprint" });
     } finally {
       setIsLoading(false);
     }
@@ -1888,15 +1945,22 @@ export function CreateBlueprintModal({
         try {
           console.log(`Updating blueprint ${blueprintId} with description from questions API`);
           
-          // Use a direct POST to update the blueprint with title and description
-          const updateResponse = await post('/api/blueprints', {
-            id: blueprintId,
-            title: apiTitle,
-            details: apiDescription,
-            prompt: userPrompt,
-            is_temporary: true,
-            visibility: 'private'
-          });
+          // FIX: Use PATCH endpoint to update instead of POST which may create a new record
+          // const updateResponse = await post('/api/blueprints', {
+          const updateResponse = await fetch(`/api/blueprints/${blueprintId}`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              title: apiTitle,
+              details: apiDescription,
+              prompt: userPrompt,
+              is_temporary: true,
+              visibility: 'private'
+            }),
+            credentials: 'include'
+          }).then(res => res.json());
           
           console.log('Blueprint updated with description:', updateResponse);
         } catch (updateError) {
@@ -1912,11 +1976,20 @@ export function CreateBlueprintModal({
         
         // Try to update the blueprint with the fallback description
         try {
-          await post('/api/blueprints', {
-            id: blueprintId,
-            details: fallbackDescription,
-            is_temporary: true
+          // FIX: Use PATCH endpoint to update instead of POST which may create a new record
+          // await post('/api/blueprints', {
+          await fetch(`/api/blueprints/${blueprintId}`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              details: fallbackDescription,
+              is_temporary: true
+            }),
+            credentials: 'include'
           });
+          
         } catch (fallbackError) {
           console.error('Failed to update with fallback description:', fallbackError);
           localStorage.setItem(`blueprint_details_${blueprintId}`, fallbackDescription);
@@ -1985,7 +2058,12 @@ export function CreateBlueprintModal({
         
         setQuestions(validatedQuestions);
         setQuestionStatus(initialStatus);
-        setActiveQuestionIndex(0); // Focus on the first question
+        
+        // Set the first question as active and clear the response field
+        setActiveQuestionIndex(0);
+        setCurrentResponse("");
+        
+        console.log('Questions processed and ready:', validatedQuestions.length);
       } else {
         console.error('Invalid response format from questions API:', questionsData);
         toast.error("Invalid response format", {
@@ -2330,13 +2408,20 @@ export function CreateBlueprintModal({
                         <div 
                           key={question.id}
                           className={cn(
-                            "bg-background rounded-lg p-5 shadow-sm border mb-4 transition-all cursor-pointer",
-                            activeQuestionIndex === index ? "border-primary" : "border-border hover:border-primary/30"
+                            "rounded-lg p-5 shadow-sm border mb-4 transition-all cursor-pointer",
+                            activeQuestionIndex === index 
+                              ? "bg-background border-primary ring-1 ring-primary/20" 
+                              : "bg-muted/30 border-border hover:border-primary/30 opacity-75"
                           )}
                           onClick={() => handleQuestionClick(index)}
                         >
                           <div className="flex items-center justify-between mb-2">
-                            <h4 className="font-semibold text-foreground">
+                            <h4 className={cn(
+                              "font-semibold", 
+                              activeQuestionIndex === index 
+                                ? "text-foreground" 
+                                : "text-muted-foreground"
+                            )}>
                               {question.title}
                             </h4>
                             <span className={cn(
@@ -2348,7 +2433,12 @@ export function CreateBlueprintModal({
                               {questionStatus[question.id] === "complete" ? "Complete" : "Pending"}
                             </span>
                           </div>
-                          <p className="text-sm text-muted-foreground">
+                          <p className={cn(
+                            "text-sm",
+                            activeQuestionIndex === index 
+                              ? "text-muted-foreground" 
+                              : "text-muted-foreground/75"
+                          )}>
                             {question.content}
                           </p>
                         </div>
@@ -2361,11 +2451,11 @@ export function CreateBlueprintModal({
             
             {/* Review UI - kept from previous implementation */}
             {currentStep === 'review' && finalData && (
-              <div className="flex flex-col p-8 h-full">
-                <h3 className="text-lg font-semibold mb-5">Review Blueprint Details</h3>
+              <div className="flex flex-col p-8 h-full overflow-hidden">
+                <h3 className="text-lg font-semibold mb-5">Review Blueprint Data</h3>
                 
-                <div className="grid grid-cols-2 gap-8">
-                  <div className="space-y-4">
+                <div className="flex flex-col h-full overflow-hidden">
+                  <div className="space-y-4 mb-6">
                     <div>
                       <Label htmlFor="title" className="text-base">Title</Label>
                       <Input 
@@ -2377,8 +2467,8 @@ export function CreateBlueprintModal({
                     </div>
                     
                     <div>
-                      <Label htmlFor="search_query" className="text-base">Generated Search Query</Label>
-                      <div className="text-sm p-2 border rounded-md mt-1 h-20 overflow-auto bg-muted/50">
+                      <Label htmlFor="search_query" className="text-base font-semibold text-primary">Generated Search Query</Label>
+                      <div className="text-sm p-3 border rounded-md mt-1 max-h-24 overflow-auto bg-muted/50">
                         {finalData.search_query ? (
                           finalData.search_query
                         ) : (
@@ -2388,49 +2478,70 @@ export function CreateBlueprintModal({
                         )}
                       </div>
                     </div>
-                    
-                    <div>
-                      <Label htmlFor="description" className="text-base">Description</Label>
-                      <Textarea 
-                        id="description"
-                        value={finalData.description || ""}
-                        onChange={(e) => setFinalData({...finalData, description: e.target.value})}
-                        className="mt-1"
-                        rows={2}
-                        placeholder="Brief description of what this AI tool does"
-                      />
-                    </div>
-                    
-                    <div>
-                      <Label htmlFor="complexity" className="text-base">Complexity</Label>
-                      <div className="text-sm p-2 border rounded-md mt-1 bg-background">
-                        {finalData.complexity || 'Not specified'}
-                      </div>
-                    </div>
                   </div>
                   
-                  <div className="space-y-4">
-                    <div>
-                      <Label htmlFor="estimatedTime" className="text-base">Estimated Time</Label>
-                      <div className="text-sm p-2 border rounded-md mt-1 bg-background">
-                        {finalData.estimated_time || 'Not specified'}
-                      </div>
-                    </div>
-                    
-                    <div>
-                      <Label htmlFor="prerequisites" className="text-base">Prerequisites</Label>
-                      <div className="text-sm p-2 border rounded-md mt-1 h-24 overflow-auto bg-background">
-                        {finalData.prerequisites && finalData.prerequisites.length > 0 ? (
-                          <ul className="list-disc pl-5">
-                            {finalData.prerequisites.map((prereq, index) => (
-                              <li key={index}>{prereq}</li>
-                            ))}
-                          </ul>
-                        ) : (
-                          'No prerequisites specified'
+                  <div className="flex-1 overflow-hidden border rounded-md">
+                    <div className="bg-muted/50 p-3 flex items-center justify-between">
+                      <h4 className="font-medium">Blueprint JSON Data</h4>
+                      <div className="flex gap-2">
+                        <Button 
+                          type="button" 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={() => {
+                            if (finalData) {
+                              navigator.clipboard.writeText(JSON.stringify(finalData, null, 2));
+                              toast.success("Copied to clipboard!");
+                            }
+                          }}
+                        >
+                          <Copy className="h-3.5 w-3.5 mr-1" />
+                          Copy
+                        </Button>
+                        {process.env.NODE_ENV === 'development' && (
+                          <Button 
+                            type="button" 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => debugBlueprint(true)}
+                          >
+                            Refresh Data
+                          </Button>
                         )}
                       </div>
                     </div>
+                    <ScrollContainer className="p-4 h-[calc(100%-48px)]">
+                      {/* Blueprint JSON Data */}
+                      <pre className="text-xs font-mono whitespace-pre-wrap">
+                        {JSON.stringify(
+                          {
+                            title: finalData.title,
+                            search_query: finalData.search_query,
+                            description: finalData.description,
+                            complexity: finalData.complexity,
+                            estimated_time: finalData.estimated_time,
+                            prerequisites: finalData.prerequisites,
+                            content: {
+                              questions: questions.map(q => ({
+                                id: q.id,
+                                title: q.title,
+                                content: q.content,
+                                response: responses[q.id] || ""
+                              })),
+                              responses
+                            },
+                            prompt,
+                            is_temporary: false,
+                            creation_info: {
+                              temporary_id: tempBlueprintId,
+                              created_id: createdBlueprintId,
+                            }
+                          }, 
+                          null, 
+                          2
+                        )}
+                      </pre>
+                    </ScrollContainer>
                   </div>
                 </div>
               </div>
@@ -2527,12 +2638,14 @@ export function CreateBlueprintModal({
                 {isLoading ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    {currentStep === 'prompt' ? "Generating..." : "Creating..."}
+                    {currentStep === 'prompt' ? "Generating Questions..." : (
+                      currentStep === 'conversation' ? "Generating Blueprint..." : "Creating Blueprint..."
+                    )}
                   </>
                 ) : (
                   <>
                     {currentStep === 'prompt' && (isExistingBlueprint && promptChanged ? "Refresh Questions" : "Continue")}
-                    {currentStep === 'conversation' && "Create Blueprint"}
+                    {currentStep === 'conversation' && "Next: Review Blueprint"}
                     {currentStep === 'review' && "Create Blueprint"}
                     {currentStep === 'prompt' && <ArrowRight className="h-4 w-4" />}
                   </>

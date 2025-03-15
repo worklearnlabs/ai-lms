@@ -95,7 +95,7 @@ export default function BlueprintCard({
           onClick={handleCardClick}
         >
           <CardHeader className="pb-2">
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 pr-7">
               <CardTitle className="text-lg font-semibold">{title}</CardTitle>
               {isTemporary && (
                 <div className="flex-shrink-0 rounded-full bg-amber-100 dark:bg-amber-900/30 p-1 flex items-center justify-center">
@@ -149,7 +149,7 @@ export default function BlueprintCard({
     >
       <Card className={cardClassName}>
         <CardHeader className="pb-2">
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 pr-7">
             <CardTitle className="text-lg font-semibold">{title}</CardTitle>
             {isVerified && (
               <div className="flex-shrink-0 rounded-full bg-emerald-100 dark:bg-emerald-900/30 p-1 flex items-center justify-center">
