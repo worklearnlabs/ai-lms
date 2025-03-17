@@ -45,7 +45,7 @@ export async function PUT(request: Request) {
     const updateFields = {
       first_name: data.firstName,
       last_name: data.lastName,
-      skill_level: data.skillLevel,
+      user_skill_level: data.skillLevel,
       learning_objectives: data.learningObjectives,
       updated_at: new Date().toISOString()
     };

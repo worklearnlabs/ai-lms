@@ -43,22 +43,12 @@ interface DebugWindowProps {
     agents?: AgentData;
     status?: 'pending' | 'passed' | 'failed';
   };
-  apiDebugData?: {
-    openaiRequest?: Record<string, unknown>;
-    openaiResponse?: Record<string, unknown>;
-    perplexityRequest?: Record<string, unknown>;
-    perplexityResponse?: Record<string, unknown>;
-    blueprintCreationRequest?: Record<string, unknown>;
-    blueprintCreationResponse?: Record<string, unknown>;
-    error?: string;
-  };
   onRefresh?: () => void;
   isLoading?: boolean;
 }
 
 export function BlueprintDebugWindow({ 
   blueprintData, 
-  apiDebugData, 
   onRefresh, 
   isLoading 
 }: DebugWindowProps) {
@@ -107,24 +97,39 @@ export function BlueprintDebugWindow({
     : 0;
 
   return (
-    <div className="mt-4 relative p-3 bg-slate-900 text-white text-xs rounded-md max-h-[90vh] font-mono overflow-hidden">
+    <div 
+      className="mt-4 relative p-3 bg-slate-900 text-white text-xs rounded-md max-h-[90vh] font-mono overflow-hidden"
+      onClick={(e) => e.stopPropagation()}
+    >
       {/* Sticky header with buttons that stays on top when scrolling */}
       <div className="sticky top-0 right-0 z-20 flex justify-between bg-slate-900/95 backdrop-blur-sm py-1 mb-2 border-b border-slate-700">
         <div className="flex space-x-2">
           <button 
-            onClick={() => setActiveView('blueprint')}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation(); // Prevent click from bubbling
+              setActiveView('blueprint');
+            }}
             className={`px-3 py-1 rounded text-xs ${activeView === 'blueprint' ? 'bg-blue-600 text-white' : 'bg-slate-700 hover:bg-slate-600'}`}
           >
             1. Blueprint Data
           </button>
           <button 
-            onClick={() => setActiveView('reasoning')}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation(); // Prevent click from bubbling
+              setActiveView('reasoning');
+            }}
             className={`px-3 py-1 rounded text-xs ${activeView === 'reasoning' ? 'bg-blue-600 text-white' : 'bg-slate-700 hover:bg-slate-600'}`}
           >
             2. Reasoning
           </button>
           <button 
-            onClick={() => setActiveView('research')}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation(); // Prevent click from bubbling
+              setActiveView('research');
+            }}
             className={`px-3 py-1 rounded text-xs ${activeView === 'research' ? 'bg-green-600 text-white' : 'bg-slate-700 hover:bg-slate-600'}`}
           >
             3. Research
@@ -137,7 +142,11 @@ export function BlueprintDebugWindow({
               variant="ghost"
               size="sm"
               className="h-8 w-8 p-0 bg-slate-800 hover:bg-slate-700 text-slate-200"
-              onClick={onRefresh}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onRefresh();
+              }}
               title="Refresh debug data"
               disabled={isLoading}
             >
@@ -149,7 +158,11 @@ export function BlueprintDebugWindow({
             variant="ghost"
             size="sm"
             className="h-8 w-8 p-0 bg-slate-800 hover:bg-slate-700 text-slate-200"
-            onClick={copyToClipboard}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              copyToClipboard();
+            }}
             title="Copy debug data to clipboard"
           >
             {hasCopied ? 
@@ -255,7 +268,44 @@ export function BlueprintDebugWindow({
                   <div>
                     <div className="text-gray-400">Constructed Prompt:</div>
                     <div className="bg-blue-950/30 p-2 rounded mt-1 whitespace-pre-wrap">
-                      {String(agents.reasoning_agent?.inputs?.prompt || 'Not available')}
+                      {String((() => {
+                        // Construct a formatted prompt similar to the one used in the API
+                        const originalPrompt = blueprintData?.prompt || 'Not available';
+                        const questions = Array.isArray(blueprintData?.questions) ? blueprintData.questions : [];
+                        const responses = blueprintData?.responses || {};
+                        const skillLevel = blueprintData?.skill_level || 'Not specified';
+                        const learningObjective = blueprintData?.learning_objective || 'Not specified';
+                        
+                        if (questions.length === 0) {
+                          return originalPrompt;
+                        }
+                        
+                        // Build a formatted prompt similar to the one in the API
+                        const formattedPrompt = `# Reasoning Agent Task: Blueprint Analysis and Search Query Formulation
+
+## User Request
+${originalPrompt}
+
+## User Context
+Skill Level: ${skillLevel}
+Learning Objective: ${learningObjective}
+
+## Requirements Analysis
+Based on analyzing the user's initial request and their responses to clarifying questions, I've gathered the following key requirements:
+
+${questions.map((q: {id: number; title: string; content: string}) => {
+  const questionId = q.id.toString();
+  const response = responses[questionId as keyof typeof responses] || 'No response provided';
+  return `### ${q.title}
+- Question: ${q.content}
+- Response: ${response}`;
+}).join('\n\n')}
+
+## Your Task
+As a REASONING AGENT, you need to synthesize this information and create a detailed search query.`;
+
+                        return formattedPrompt;
+                      })())}
                     </div>
                   </div>
                 </div>

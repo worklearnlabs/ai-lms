@@ -5,7 +5,7 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import { toast } from "sonner"
 import { 
   ArrowLeft, 
@@ -110,6 +110,7 @@ interface DebugInfo {
         user_profile?: {
           skill_level?: string;
           learning_objective?: string;
+          user_data_source?: string;
         }
       };
       outputs?: {
@@ -1995,7 +1996,121 @@ export function CreateBlueprintModal({
       const dbDetails = null;
       const finalizedBlueprintData = null;
       let searchQueryAnalysis = null;
+      let userData = null;
       
+      // Try to fetch current user data using our debug endpoint first
+      try {
+        console.log(`[DEBUG] Attempting to fetch detailed user profile data from debug endpoint...`);
+        const debugResponse = await fetch('/api/debug/user-profile', {
+          method: 'GET',
+          credentials: 'include',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache'
+          }
+        });
+        
+        console.log(`[DEBUG] Debug profile API response status: ${debugResponse.status} ${debugResponse.statusText}`);
+        
+        if (debugResponse.ok) {
+          const debugData = await debugResponse.json();
+          console.log(`[DEBUG] Available user columns:`, debugData.debug_info.available_columns);
+          console.log(`[DEBUG] Contains skill_level field: ${debugData.debug_info.contains_skill_level}`);
+          console.log(`[DEBUG] Contains user_skill_level field: ${debugData.debug_info.contains_user_skill_level}`);
+          console.log(`[DEBUG] Raw user data:`, debugData.raw_user_data);
+          
+          // Store the data for later use
+          userData = debugData.raw_user_data;
+          
+          // Check if we have the skill level in either field
+          const skillLevel = userData.user_skill_level || userData.skill_level;
+          const learningObjectives = userData.learning_objectives;
+          
+          if (skillLevel) {
+            console.log(`[DEBUG] Found user skill level from debug endpoint: ${skillLevel}`);
+          } else {
+            console.log(`[DEBUG] No skill level found in user data`);
+          }
+          
+          if (learningObjectives) {
+            console.log(`[DEBUG] Found learning objectives from debug endpoint: ${learningObjectives}`);
+          } else {
+            console.log(`[DEBUG] No learning objectives found in user data`);
+          }
+        } else {
+          // Try to get more information about the error
+          let errorDetails = '';
+          try {
+            const errorJson = await debugResponse.json();
+            errorDetails = JSON.stringify(errorJson);
+          } catch (parseError) {
+            try {
+              errorDetails = await debugResponse.text();
+            } catch (textError) {
+              errorDetails = 'Could not parse error response';
+            }
+          }
+          
+          console.warn(`[DEBUG] Failed to fetch debug user profile data. Status: ${debugResponse.status}, Details: ${errorDetails}`);
+          console.log(`[DEBUG] Falling back to standard profile endpoint...`);
+          
+          // Proceed with the standard profile endpoint as fallback
+          await fetchStandardProfileData();
+        }
+      } catch (debugError) {
+        console.error(`[DEBUG] Exception when fetching debug profile:`, debugError);
+        console.log(`[DEBUG] Falling back to standard profile endpoint...`);
+        
+        // Proceed with the standard profile endpoint as fallback
+        await fetchStandardProfileData();
+      }
+      
+      // Function to fetch data from the standard profile endpoint
+      async function fetchStandardProfileData() {
+        try {
+          console.log(`[DEBUG] Attempting to fetch user profile data from /api/profile...`);
+          const response = await fetch('/api/profile', {
+            method: 'GET',
+            credentials: 'include',
+            headers: {
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              'Pragma': 'no-cache'
+            }
+          });
+          
+          console.log(`[DEBUG] Profile API response status: ${response.status} ${response.statusText}`);
+          
+          if (response.ok) {
+            userData = await response.json();
+            console.log(`[DEBUG] Successfully fetched user profile data:`, {
+              id: userData.id,
+              email: userData.email, 
+              firstName: userData.firstName,
+              lastName: userData.lastName,
+              skill_level: userData.skill_level,
+              learning_objectives: userData.learning_objectives
+            });
+          } else {
+            // Try to get more information about the error
+            let errorDetails = '';
+            try {
+              const errorJson = await response.json();
+              errorDetails = JSON.stringify(errorJson);
+            } catch (parseError) {
+              try {
+                errorDetails = await response.text();
+              } catch (textError) {
+                errorDetails = 'Could not parse error response';
+              }
+            }
+            
+            console.warn(`[DEBUG] Failed to fetch user profile data. Status: ${response.status}, Details: ${errorDetails}`);
+          }
+        } catch (userError) {
+          console.error(`[DEBUG] Exception when fetching user profile:`, userError);
+        }
+      }
+
       // Fetch the blueprint details first
       try {
         console.log(`[DEBUG] Starting blueprint debugging for ID: ${tempBlueprintId}`);
@@ -2091,8 +2206,8 @@ export function CreateBlueprintModal({
         prompt: blueprintData?.prompt || "No prompt available",
         questions: questionsData?.questions || [],
         responses: questionsData?.responses || {},
-        skill_level: blueprintData?.skill_level || "Not specified",
-        learning_objective: blueprintData?.learning_objective || "Not specified", 
+        skill_level: blueprintData?.skill_level || userData?.skill_level || userData?.user_skill_level || "Not specified",
+        learning_objective: blueprintData?.learning_objective || userData?.learning_objectives || "Not specified", 
         is_temporary: blueprintData?.is_temporary || false,
         status: 'pending', // Default status, will update below
         
@@ -2122,8 +2237,9 @@ export function CreateBlueprintModal({
               prompt: blueprintData?.prompt || "No prompt available",
               questions_and_answers: formattedQA,
               user_profile: {
-                skill_level: blueprintData?.skill_level || "Not specified",
-                learning_objective: blueprintData?.learning_objective || "Not specified"
+                skill_level: blueprintData?.skill_level || userData?.skill_level || userData?.user_skill_level || "Not specified",
+                learning_objective: blueprintData?.learning_objective || userData?.learning_objectives || "Not specified",
+                user_data_source: userData ? "Database user profile" : "Not fetched from database"
               }
             },
             outputs: blueprintData?.search_query ? {
@@ -2859,11 +2975,34 @@ export function CreateBlueprintModal({
     }
   };
 
+  // Add a state to prevent form submission when using the debug panel
+  const [preventFormSubmit, setPreventFormSubmit] = useState(false);
+
+  // Add an effect to manage form submission prevention when debug window is open
+  useEffect(() => {
+    if (isDebugOpen) {
+      setPreventFormSubmit(true);
+    } else {
+      setPreventFormSubmit(false);
+    }
+  }, [isDebugOpen]);
+
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       {triggerButton && <DialogTrigger asChild>{triggerButton}</DialogTrigger>}
       <DialogContent className="max-w-[80vw] max-h-[85vh] w-full h-[700px] flex flex-col data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 p-0 gap-0 overflow-hidden">
-        <form onSubmit={handleSubmit} className="flex flex-col h-full">
+        <form 
+          onSubmit={(e) => {
+            // If preventFormSubmit is true, stop the submission
+            if (preventFormSubmit || isDebugOpen) {
+              console.log('Form submission prevented because preventFormSubmit is true or debug is open');
+              e.preventDefault();
+              return;
+            }
+            handleSubmit(e);
+          }} 
+          className="flex flex-col h-full"
+        >
           <DialogHeader className="px-8 py-6 border-b bg-background">
             <DialogTitle className="text-xl font-bold">
               {currentStep === 'prompt' ? 
@@ -3211,10 +3350,44 @@ export function CreateBlueprintModal({
                           variant="ghost"
                           size="sm"
                           className="h-8 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200"
-                          onClick={() => debugBlueprint(true)}
+                          onClick={(e) => {
+                            // Prevent any default behavior
+                            e.preventDefault();
+                            e.stopPropagation();
+                            
+                            // Set debugIsOpen to true
+                            setIsDebugOpen(!isDebugOpen);
+                            
+                            // Also add sample API debug data for demonstration
+                            if (!isDebugOpen) {
+                              // When opening, populate some API debug data
+                              const sampleApiDebugData = {
+                                openaiRequest: {
+                                  endpoint: '/api/blueprints/reason/finalize',
+                                  method: 'POST',
+                                  data: {
+                                    prompt: prompt,
+                                    description: description,
+                                    responses: responses
+                                  }
+                                },
+                                openaiResponse: {
+                                  title: "Competitive Marketing Analysis AI",
+                                  search_query: "Create an AI system to analyze competitors' marketing materials",
+                                  description: "Detailed description would be here"
+                                }
+                              };
+                              
+                              // Update API debug data
+                              setApiDebugData(sampleApiDebugData);
+                            }
+                            
+                            // Trigger debug blueprint
+                            debugBlueprint();
+                          }}
+                          disabled={isLoading || !tempBlueprintId}
                         >
-                          <RefreshCw className="h-4 w-4 mr-1" />
-                          Refresh
+                          Debug <span className="sr-only">Debug</span>
                         </Button>
                       )}
                     </div>
@@ -3281,7 +3454,11 @@ export function CreateBlueprintModal({
                       variant="outline"
                       size="sm"
                       className="text-xs border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-900 gap-1"
-                      onClick={() => {
+                      onClick={(e) => {
+                        // Prevent any default behavior
+                        e.preventDefault();
+                        e.stopPropagation();
+                        
                         // Set debugIsOpen to true
                         setIsDebugOpen(!isDebugOpen);
                         
@@ -3374,13 +3551,20 @@ export function CreateBlueprintModal({
                 }
                 
                 return (
-                  <div className="absolute inset-0 bg-background/95 backdrop-blur-sm z-50 p-8 overflow-auto">
+                  <div 
+                    className="absolute inset-0 bg-background/95 backdrop-blur-sm z-50 p-8 overflow-auto"
+                    onClick={(e) => e.stopPropagation()} // Prevent clicks within debug modal from bubbling up
+                    data-debug-window="open"
+                  >
                     <div className="flex justify-between items-center mb-4">
                       <h3 className="text-lg font-semibold">Debug Information</h3>
                       <Button 
                         variant="outline" 
                         size="sm"
-                        onClick={() => setIsDebugOpen(false)}
+                        onClick={(e) => {
+                          e.stopPropagation(); // Prevent any event bubbling
+                          setIsDebugOpen(false);
+                        }}
                       >
                         Close Debug
                       </Button>
@@ -3391,7 +3575,6 @@ export function CreateBlueprintModal({
                         // Display blueprint data
                         <BlueprintDebugWindow
                           blueprintData={parsedData}
-                          apiDebugData={apiDebugData}
                           onRefresh={() => debugBlueprint(true)}
                           isLoading={isLoading}
                         />

@@ -115,6 +115,65 @@ export const POST = createRouteHandler<FinalizeResponse>(
         blueprint_id
       });
       
+      // Variables to store user data from database
+      let userSkillLevel = user_skill_level;
+      let userLearningObjective = learning_objective;
+      
+      // If we have an authenticated user, try to get their skill level and learning objectives from the database
+      if (user) {
+        try {
+          console.log('Fetching user profile data for user:', user.id);
+          
+          // Log the query we're about to execute
+          console.log('SQL query parameters:', {
+            table: 'users',
+            filter_column: 'id',
+            filter_value: user.id,
+            selected_columns: ['user_skill_level', 'learning_objectives']
+          });
+          
+          const { data: userData, error: userError } = await supabase
+            .from('users')
+            .select('user_skill_level, learning_objectives')
+            .eq('id', user.id)
+            .single();
+          
+          if (userError) {
+            console.warn('Error fetching user data:', userError);
+            // Log more details about the error
+            console.warn('Error details:', {
+              code: userError.code,
+              message: userError.message,
+              details: userError.details,
+              hint: userError.hint
+            });
+          } else if (userData) {
+            console.log('Raw user data from database:', userData);
+            
+            // Only use the database values if not provided in the request
+            if (!userSkillLevel && userData.user_skill_level) {
+              console.log('Using skill level from user profile:', userData.user_skill_level);
+              userSkillLevel = userData.user_skill_level;
+            } else {
+              console.log('Not using database user_skill_level because:', !userSkillLevel ? 'userSkillLevel already set' : 'userData.user_skill_level is empty');
+            }
+            
+            if (!userLearningObjective && userData.learning_objectives) {
+              console.log('Using learning objectives from user profile:', userData.learning_objectives);
+              userLearningObjective = userData.learning_objectives;
+            } else {
+              console.log('Not using database learning_objectives because:', !userLearningObjective ? 'userLearningObjective already set' : 'userData.learning_objectives is empty');
+            }
+          } else {
+            console.log('No user data found in database for user ID:', user.id);
+          }
+        } catch (userDataError) {
+          console.error('Failed to fetch user profile data:', userDataError);
+        }
+      } else {
+        console.log('No authenticated user available for profile data fetch');
+      }
+      
       // Verify the blueprint exists
       const { data: blueprint, error: blueprintError } = await supabase
         .from('blueprints')
@@ -155,8 +214,8 @@ export const POST = createRouteHandler<FinalizeResponse>(
 ${prompt}
 
 ## User Context
-${user_skill_level ? `Skill Level: ${user_skill_level}` : 'Skill Level: Not specified'}
-${learning_objective ? `Learning Objective: ${learning_objective}` : 'Learning Objective: Not specified'}
+${userSkillLevel ? `Skill Level: ${userSkillLevel}` : 'Skill Level: Not specified'}
+${userLearningObjective ? `Learning Objective: ${userLearningObjective}` : 'Learning Objective: Not specified'}
 
 ## Requirements Analysis
 Based on analyzing the user's initial request and their responses to clarifying questions, I've gathered the following key requirements:
