@@ -41,6 +41,7 @@ import { post } from '@/utils/fetch-wrapper';
 
 // Import BlueprintDebugWindow at the top of the file
 import { BlueprintDebugWindow } from "@/components/BlueprintDebugWindow";
+import { useRouter } from "next/navigation";
 
 // Define the BlueprintData interface at the top level so it can be reused
 interface BlueprintData {
@@ -59,7 +60,7 @@ interface BlueprintData {
     }>;
     responses?: Record<string, string>;
   };
-  complexity?: 'beginner' | 'intermediate' | 'advanced';
+  skill_level?: 'beginner' | 'intermediate' | 'advanced';
   estimated_time?: string;
   prerequisites?: string[];
 }
@@ -91,6 +92,7 @@ interface DebugInfo {
   timestamp: string;
   blueprint_id?: string;
   blueprint_title?: string;
+  // For standard API request tracking
   request: {
     method: string;
     url: string;
@@ -99,6 +101,35 @@ interface DebugInfo {
     credentials?: string;
   };
   response: DebugInfoResponse;
+  // For agent data flow tracking
+  agents?: {
+    reasoning_agent?: {
+      inputs?: {
+        prompt: string;
+        questions_and_answers: Record<string, any>;
+        user_profile?: {
+          skill_level?: string;
+          learning_objective?: string;
+        }
+      };
+      outputs?: {
+        search_query: string;
+        search_instruction_analysis?: string;
+        output_format_analysis?: string;
+        reasoning_process?: string;
+      };
+    };
+    research_agent?: {
+      inputs?: {
+        search_query: string;
+        context?: string;
+      };
+      expected_output_format?: {
+        structure: string;
+        example?: string;
+      };
+    };
+  };
   api_response_indicates_success?: boolean;
   verification_response?: any;
   verification?: {
@@ -147,6 +178,79 @@ function ScrollContainer({ children, className }: { children: React.ReactNode; c
       )}
     </div>
   );
+}
+
+// Add a helper function to ensure objects are safe for JSON
+function makeJsonSafe(obj: any): any {
+  // Guard against null or undefined input
+  if (obj === null || obj === undefined) {
+    console.warn('makeJsonSafe received null or undefined input');
+    return {};
+  }
+
+  // Handle circular references by creating a clean copy
+  try {
+    return JSON.parse(JSON.stringify(obj));
+  } catch (error) {
+    console.error('Error converting object to JSON:', error);
+    
+    // For complex objects, create a simplified version by manually copying properties
+    if (typeof obj === 'object' && obj !== null) {
+      // Handle arrays
+      if (Array.isArray(obj)) {
+        const result = obj.map(item => {
+          try {
+            return typeof item === 'object' && item !== null 
+              ? makeJsonSafe(item) 
+              : item;
+          } catch (e) {
+            console.warn(`Couldn't process array item: ${e}`);
+            return `[Complex object: ${typeof item}]`;
+          }
+        });
+        
+        // Return empty array if all items were filtered out
+        if (result.length === 0 && obj.length > 0) {
+          console.warn('All array items were filtered out during makeJsonSafe');
+        }
+        return result;
+      }
+      
+      // Handle objects
+      const result: Record<string, any> = {};
+      let propertiesProcessed = 0;
+      
+      for (const key in obj) {
+        if (Object.prototype.hasOwnProperty.call(obj, key)) {
+          try {
+            const value = obj[key];
+            if (value !== undefined) {
+              result[key] = typeof value === 'object' && value !== null 
+                ? makeJsonSafe(value) 
+                : value;
+              propertiesProcessed++;
+            }
+          } catch (e) {
+            console.warn(`Couldn't process property ${key}: ${e}`);
+            result[key] = `[Complex value: ${typeof obj[key]}]`;
+            propertiesProcessed++;
+          }
+        }
+      }
+      
+      // Check if we processed any properties
+      if (propertiesProcessed === 0 && Object.keys(obj).length > 0) {
+        console.warn('All properties were filtered out during makeJsonSafe');
+        // Add a special flag to indicate this was originally a non-empty object
+        result._originallyNonEmpty = true;
+      }
+      
+      return result;
+    }
+    
+    // For primitives, return as is
+    return obj;
+  }
 }
 
 export function CreateBlueprintModal({ 
@@ -219,7 +323,7 @@ export function CreateBlueprintModal({
     title: string;
     search_query: string;
     description?: string;
-    complexity?: 'beginner' | 'intermediate' | 'advanced';
+    skill_level?: 'beginner' | 'intermediate' | 'advanced';
     estimated_time?: string;
     prerequisites?: string[];
   } | null>(null);
@@ -452,7 +556,7 @@ export function CreateBlueprintModal({
             }>;
             responses?: Record<string, string>;
           };
-          complexity?: 'beginner' | 'intermediate' | 'advanced';
+          skill_level?: 'beginner' | 'intermediate' | 'advanced';
           estimated_time?: string;
           prerequisites?: string[];
         }
@@ -504,7 +608,7 @@ export function CreateBlueprintModal({
               title: data.title || "",
               search_query: data.search_query,
               description: data.description || data.details || "",
-              complexity: data.complexity,
+              skill_level: data.skill_level,
               estimated_time: data.estimated_time,
               prerequisites: data.prerequisites || []
             });
@@ -1145,19 +1249,46 @@ export function CreateBlueprintModal({
   
   // Handle creating the final blueprint
   const handleCreateBlueprint = async () => {
+    // Enhanced input validation with early returns for each validation
+    
     // Check that we have all required data
-    if (!finalData || !finalData.title) {
-      toast.error("Blueprint title is required");
+    if (!finalData) {
+      toast.error("Final blueprint data is missing");
+      console.error("Blueprint creation validation error: Final blueprint data is missing");
+      return;
+    }
+    
+    // Add more comprehensive validation
+    if (!finalData.title || typeof finalData.title !== 'string' || finalData.title.trim() === '') {
+      toast.error("Blueprint title is required and must be a non-empty string");
+      console.error("Blueprint creation validation error: Invalid title");
+      return;
+    }
+
+    // Validate search_query if present
+    if (finalData.search_query !== undefined && 
+       (typeof finalData.search_query !== 'string' || finalData.search_query.trim() === '')) {
+      toast.error("Search query must be a non-empty string if provided");
+      console.error("Blueprint creation validation error: Invalid search query");
       return;
     }
     
     if (!tempBlueprintId) {
       toast.error("No temporary blueprint ID found");
+      console.error("Blueprint creation validation error: Missing tempBlueprintId");
       return;
     }
     
-    if (questions.length === 0 || Object.keys(responses).length === 0) {
-      toast.error("Please complete at least one question before creating the blueprint");
+    // Ensure content is valid
+    if (!questions || !Array.isArray(questions) || questions.length === 0) {
+      toast.error("Blueprint must contain at least one question");
+      console.error("Blueprint creation validation error: Missing questions");
+      return;
+    }
+    
+    if (!responses || typeof responses !== 'object' || Object.keys(responses).length === 0) {
+      toast.error("Blueprint must contain at least one response");
+      console.error("Blueprint creation validation error: Missing responses");
       return;
     }
     
@@ -1204,6 +1335,29 @@ export function CreateBlueprintModal({
         responses: { ...responses }
       };
       
+      // Validate content structure
+      if (!Array.isArray(content.questions) || content.questions.length === 0) {
+        throw new Error("Blueprint must have at least one question");
+      }
+      
+      // Make sure all questions have required fields
+      for (const question of content.questions) {
+        if (!question.id) {
+          throw new Error("Question is missing id");
+        }
+        if (!question.title) {
+          throw new Error(`Question ${question.id} is missing title`);
+        }
+        if (!question.content) {
+          throw new Error(`Question ${question.id} is missing content`);
+        }
+      }
+      
+      // Ensure responses object is present
+      if (!content.responses || typeof content.responses !== 'object') {
+        content.responses = {}; // Create empty responses object if missing
+      }
+      
       // Log just before sending to help debug search_query issues
       console.log('Final data before blueprint creation:', {
         title: finalData.title,
@@ -1220,61 +1374,209 @@ export function CreateBlueprintModal({
         details: finalData.description || description, // Use local description state as fallback
         prompt,
         content,
-        complexity: finalData.complexity,
-        estimated_time: finalData.estimated_time,
+        // Include both skill_level for the UI and complexity for the database
+        skill_level: finalData.skill_level || 'beginner', // Use UI values as-is
+        // Map from skill_level values to database complexity values
+        complexity: (() => {
+          const complexityMap: Record<string, string> = {
+            'beginner': 'low',
+            'intermediate': 'medium',
+            'advanced': 'high'
+          };
+          const skillLevel = finalData.skill_level || 'beginner';
+          return complexityMap[skillLevel] || 'low'; // Default to 'low' if mapping fails
+        })(),
+        estimated_time: finalData.estimated_time || '30 minutes', // Provide a default
         is_temporary: false, // Set to false to make it a permanent blueprint
       };
       
-      console.log(`Sending ${method} request to ${endpoint}:`, blueprintData);
-      
-      // Use fetch to send the request to the API
-      const response = await fetch(endpoint, {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(blueprintData),
+      // Log the blueprint data with both fields for debugging
+      console.log('Blueprint data with both skill_level and complexity:', {
+        title: blueprintData.title,
+        skill_level: blueprintData.skill_level,
+        complexity: blueprintData.complexity
       });
       
-      if (!response.ok) {
-        const error = await response.json();
-        console.error('Error creating blueprint:', error);
-        throw new Error(error.error || 'Failed to create blueprint');
+      // Clean the data to ensure it's safe for API transmission
+      const cleanedData = makeJsonSafe(blueprintData);
+      
+      // Verify data can be serialized to JSON properly (catches circular references, etc.)
+      try {
+        JSON.stringify(cleanedData);
+      } catch (jsonError) {
+        console.error('JSON serialization error:', jsonError);
+        throw new Error('Blueprint data contains values that cannot be properly serialized');
       }
       
-      // Parse the response
-      const data = await response.json();
-      console.log('Blueprint successfully created/updated:', data);
-      
-      // For debugging purposes, show the response data
-      setIsDebugOpen(true);
-      
-      // Set the created blueprint ID if it's not already set
-      if (!createdBlueprintId) {
-        setCreatedBlueprintId(data.id);
+      // Critical validation to prevent empty object causing "Invalid input" errors
+      if (!cleanedData || Object.keys(cleanedData).length === 0) {
+        console.error('Empty or invalid data object after processing:', cleanedData);
+        console.log('Original blueprint data:', blueprintData);
+        throw new Error('Data that caused invalid input error: {}');
       }
       
-      toast.success("Blueprint created successfully", { id: "create-blueprint" });
-      
-      // Notify parent component that a blueprint was created
-      if (onBlueprintCreated) {
-        onBlueprintCreated(data.id);
+      // Extra validation for complexity - ensure it has the expected API values
+      if (cleanedData.skill_level) {
+        const validSkillLevelValues = ['beginner', 'intermediate', 'advanced'];
+        if (!validSkillLevelValues.includes(cleanedData.skill_level)) {
+          console.error('Invalid skill_level value:', cleanedData.skill_level);
+          cleanedData.skill_level = 'beginner'; // Default to beginner if invalid
+          console.log('Corrected skill_level to "beginner"');
+        }
       }
       
-      // DEBUGGING: Prevent auto-closing and redirecting for now to allow debugging
-      console.log("DEBUGGING: Keeping modal open for debugging. Normally would redirect.");
+      // Ensure critical fields are present
+      if (!cleanedData.title || typeof cleanedData.title !== 'string') {
+        console.error('Missing title in cleanedData:', cleanedData);
+        throw new Error('Blueprint title is missing after data processing');
+      }
       
-      /* 
-      // Comment out auto-redirect for debugging purposes
-      // Close the modal and redirect to the blueprint page
-      setIsVisible(false);
-      router.push(`/blueprints/${data.id}`);
-      */
+      if (!cleanedData.prompt || typeof cleanedData.prompt !== 'string') {
+        console.error('Missing prompt in cleanedData:', cleanedData);
+        throw new Error('Blueprint prompt is missing after data processing');
+      }
       
+      if (!cleanedData.content || typeof cleanedData.content !== 'object') {
+        console.error('Missing content in cleanedData:', cleanedData);
+        throw new Error('Blueprint content is missing after data processing');
+      }
+      
+      console.log(`Sending ${method} request to ${endpoint}:`, cleanedData);
+      
+      try {
+        // Prepare request options to ensure proper data handling
+        const requestOptions = {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(cleanedData),
+          credentials: 'include' as RequestCredentials
+        };
+        
+        console.log('Making direct fetch API call with these options:', {
+          endpoint,
+          method: requestOptions.method,
+          bodySize: requestOptions.body.length,
+          bodyPreview: requestOptions.body.substring(0, 100) + '...'
+        });
+        
+        // Use fetch directly for better control
+        const response = await fetch(endpoint, requestOptions);
+        
+        // Handle errors
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error(`API error (${response.status}):`, errorText);
+          
+          try {
+            const errorJson = JSON.parse(errorText);
+            throw new Error(errorJson.error || `API error: ${response.status}`);
+          } catch (e) {
+            throw new Error(`API error (${response.status}): ${errorText || 'Unknown error'}`);
+          }
+        }
+        
+        // Parse the successful response
+        const data = await response.json();
+        
+        console.log('Blueprint successfully created/updated:', data);
+        
+        // For debugging purposes, show the response data
+        setIsDebugOpen(true);
+        
+        // Set the created blueprint ID if it's not already set
+        if (!createdBlueprintId) {
+          setCreatedBlueprintId(data.id);
+        }
+        
+        toast.success("Blueprint created successfully", { id: "create-blueprint" });
+        
+        // First close the modal - must happen before callback to prevent race conditions
+        setIsOpen(false);
+        
+        // Add a small delay before notifying the parent to ensure database consistency
+        setTimeout(() => {
+          // Notify parent component that a blueprint was created
+          if (onBlueprintCreated && data && data.id) {
+            console.log("Calling onBlueprintCreated with ID:", data.id);
+            onBlueprintCreated(data.id);
+          } else {
+            console.warn("onBlueprintCreated callback is not provided or data.id is missing");
+            console.log("Blueprint data:", data);
+          }
+          
+          // In development mode, log debugging info
+          if (process.env.NODE_ENV === 'development') {
+            console.log("DEBUGGING: Blueprint creation complete. Parent component notified after modal closed.");
+          }
+        }, 200); // Small delay to ensure database consistency
+      } catch (error) {
+        console.error('Error in blueprint creation API call:', error);
+        
+        // Provide a more descriptive error message based on the error
+        let errorMessage = 'Failed to create blueprint';
+        let errorDetails = '';
+        
+        if (error instanceof Error) {
+          errorMessage = error.message;
+          errorDetails = error.stack || '';
+          
+          // Special case for common errors
+          if (errorMessage.includes('Invalid input')) {
+            errorMessage = 'Invalid blueprint data format';
+            console.error('Data that caused invalid input error:', cleanedData);
+          } else if (errorMessage.includes('Failed to fetch')) {
+            errorMessage = 'Network error - could not reach the server';
+          }
+        }
+        
+        // Set error debug data
+        setDebugResults(JSON.stringify({
+          error: true,
+          message: errorMessage,
+          details: errorDetails,
+          data_sent: cleanedData,
+          timestamp: new Date().toISOString()
+        }, null, 2));
+        
+        setIsDebugOpen(true);
+        throw new Error(errorMessage); // Re-throw with more descriptive message
+      }
     } catch (error) {
       console.error('Error in handleCreateBlueprint:', error);
+      
+      // Add more detailed error debugging
+      let errorMessage = 'Failed to create blueprint';
+      let errorDetails = '';
+      
+      if (error instanceof Error) {
+        errorMessage = error.message;
+        errorDetails = error.stack || '';
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      } else if (error && typeof error === 'object') {
+        errorMessage = JSON.stringify(error);
+      }
+      
+      // Set debug data for the error to help with troubleshooting
+      setDebugResults(JSON.stringify({
+        error: true,
+        message: errorMessage,
+        details: errorDetails,
+        timestamp: new Date().toISOString(),
+        blueprint_info: {
+          tempBlueprintId,
+          createdBlueprintId,
+          title: finalData?.title || '',
+          has_search_query: !!finalData?.search_query,
+          question_count: questions.length,
+          response_count: Object.keys(responses).length
+        }
+      }, null, 2));
+      
       setIsDebugOpen(true);
-      toast.error(error instanceof Error ? error.message : 'Failed to create blueprint', { id: "create-blueprint" });
+      toast.error(errorMessage, { id: "create-blueprint" });
     } finally {
       setIsLoading(false);
     }
@@ -1329,7 +1631,7 @@ export function CreateBlueprintModal({
         title: data.title || title,
         search_query: data.search_query, // Only use the API-generated search_query, no fallback
         description: data.description || description,
-        complexity: data.skill_level || 'beginner',
+        skill_level: data.skill_level || 'beginner',
         estimated_time: data.estimated_time || '1-2 hours',
         prerequisites: data.prerequisites || []
       });
@@ -1762,6 +2064,36 @@ export function CreateBlueprintModal({
         };
       }
       
+      // Get finalized blueprint info from API if available
+      let finalizedBlueprintData = null;
+      try {
+        console.log(`[DEBUG] Fetching finalized blueprint data for ID: ${tempBlueprintId}`);
+        const finalizedResponse = await fetch(`/api/blueprints/${tempBlueprintId}/finalized?t=${timestamp}`, {
+          method: 'GET',
+          credentials: 'include',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'X-Debug-Client': 'create-blueprint-modal'
+          }
+        });
+        
+        if (finalizedResponse.ok) {
+          finalizedBlueprintData = await finalizedResponse.json();
+          console.log(`[DEBUG] Successfully fetched finalized blueprint data`);
+        } else {
+          console.log(`[DEBUG] Failed or no finalized blueprint data: ${finalizedResponse.status}`);
+          // Not treating this as an error - it might just not be finalized yet
+          finalizedBlueprintData = null;
+        }
+      } catch (finalizationError) {
+        console.error("[DEBUG] Error fetching finalized blueprint data:", finalizationError);
+        finalizedBlueprintData = null;
+      }
+      
+      // Analyze the search query to provide insights about its structure
+      const searchQueryAnalysis = blueprintData?.search_query ? analyzeSearchQuery(blueprintData.search_query) : null;
+      
       // Gather comprehensive debug information
       const debugInfo = {
         blueprint_id: tempBlueprintId,
@@ -1769,6 +2101,61 @@ export function CreateBlueprintModal({
         questions_and_answers: formattedQA,
         questions_response_data: questionsData, // Include the raw questions response
         raw_db_data: dbDetails,
+        finalized_blueprint_data: finalizedBlueprintData,
+        // New agent data flow information
+        agents: {
+          reasoning_agent: {
+            inputs: {
+              prompt: blueprintData?.prompt || "Not available",
+              questions_and_answers: formattedQA,
+              user_profile: {
+                skill_level: blueprintData?.skill_level || "Not specified",
+                learning_objective: blueprintData?.learning_objective || "Not specified"
+              }
+            },
+            outputs: blueprintData?.search_query ? {
+              search_query: blueprintData.search_query,
+              search_instruction_analysis: searchQueryAnalysis?.search_instructions || "Not analyzed",
+              output_format_analysis: searchQueryAnalysis?.output_format || "Not analyzed",
+              reasoning_process: searchQueryAnalysis?.reasoning_process || "Not analyzed"
+            } : "Search query not generated yet"
+          },
+          research_agent: blueprintData?.search_query ? {
+            inputs: {
+              search_query: blueprintData.search_query,
+              context: blueprintData?.prompt || "Not available"
+            },
+            expected_output_format: {
+              structure: "JSON structure as defined in perplexity-integration-plan.md",
+              example: `{
+  "complexity": "low|medium|high",
+  "steps": [
+    {
+      "number": 1,
+      "title": "Step Title",
+      "estimated_time": 30,
+      "instructions": ["Instruction 1", "Instruction 2"],
+      "tools": ["Tool1", "Tool2"],
+      "subtasks": [
+        {"task_number": 1, "description": "Subtask description", "estimated_time": 10}
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "title": "Source Title",
+      "url": "https://example.com/source",
+      "snippet": "Relevant excerpt from this source..."
+    }
+  ],
+  "usage_metrics": {
+    "citation_tokens": 5286,
+    "search_queries": 1
+  }
+}`
+            }
+          } : "Search query not generated yet - research agent cannot be called"
+        },
         important_fields: blueprintData ? {
           title: blueprintData.title || "NOT SET",
           search_query: blueprintData.search_query || "NOT SET",
@@ -1789,7 +2176,7 @@ export function CreateBlueprintModal({
       setDebugResults(JSON.stringify(debugInfo, null, 2));
       
       toast.success(forceRefresh ? "Debug data refreshed" : "Debug data loaded", {
-        description: "Blueprint data and Q&A pairs retrieved"
+        description: "Blueprint data and agent info retrieved"
       });
       
     } catch (error) {
@@ -1802,6 +2189,72 @@ export function CreateBlueprintModal({
     } finally {
       setIsLoading(false);
     }
+  };
+  
+  // Helper function to analyze search query
+  const analyzeSearchQuery = (searchQuery: string) => {
+    try {
+      // Extract sections from the search query
+      const searchInstructions = extractSearchInstructions(searchQuery);
+      const outputFormat = extractOutputFormat(searchQuery);
+      
+      return {
+        search_instructions: searchInstructions,
+        output_format: outputFormat,
+        reasoning_process: "Analysis of reasoning process would normally be extracted from API logs"
+      };
+    } catch (error) {
+      console.error("Error analyzing search query:", error);
+      return {
+        search_instructions: "Error analyzing search instructions",
+        output_format: "Error analyzing output format",
+        reasoning_process: "Error analyzing reasoning process"
+      };
+    }
+  };
+  
+  // Helper function to extract search instructions from the query
+  const extractSearchInstructions = (searchQuery: string) => {
+    // Look for instructions about what to search for
+    const lines = searchQuery.split(/[.?!]\s+/);
+    const searchLines = lines.filter(line => 
+      line.toLowerCase().includes("search") || 
+      line.toLowerCase().includes("find") ||
+      line.toLowerCase().includes("develop") ||
+      line.toLowerCase().includes("create") ||
+      line.toLowerCase().includes("build")
+    );
+    
+    return searchLines.length > 0 
+      ? searchLines.join(". ") 
+      : "No explicit search instructions found. The entire query appears to be search instructions.";
+  };
+  
+  // Helper function to extract output format from the query
+  const extractOutputFormat = (searchQuery: string) => {
+    // Look for instructions about output format
+    const formatIndicators = [
+      "JSON format", 
+      "structured format", 
+      "output should be", 
+      "return format", 
+      "generate in", 
+      "provide"
+    ];
+    
+    for (const indicator of formatIndicators) {
+      const index = searchQuery.toLowerCase().indexOf(indicator.toLowerCase());
+      if (index !== -1) {
+        // Extract the sentence containing this indicator
+        const startSentence = searchQuery.lastIndexOf(".", index) + 1;
+        const endSentence = searchQuery.indexOf(".", index + 1);
+        if (endSentence !== -1) {
+          return searchQuery.substring(startSentence, endSentence).trim();
+        }
+      }
+    }
+    
+    return "No explicit output format instructions found in the search query.";
   };
 
   // Modify the deleteBlueprint function to use the dialog instead of window.confirm
@@ -2082,10 +2535,30 @@ export function CreateBlueprintModal({
     console.log(`Fetching questions for blueprint ${blueprintId}`);
     
     try {
-      const questionsData = await post('/api/blueprints/questions', {
-        prompt: userPrompt,
-        blueprint_id: blueprintId
-      });
+      // Validate inputs before making the request
+      if (!userPrompt || typeof userPrompt !== 'string' || userPrompt.trim() === '') {
+        throw new Error('User prompt is required');
+      }
+      
+      if (!blueprintId || typeof blueprintId !== 'string' || blueprintId.trim() === '') {
+        throw new Error('Blueprint ID is required');
+      }
+      
+      // Clean and prepare the request data
+      const requestData = {
+        prompt: userPrompt.trim(),
+        blueprint_id: blueprintId.trim()
+      };
+      
+      // Make sure the data is safe for JSON
+      const safeRequestData = makeJsonSafe(requestData);
+      
+      console.log('Sending request to questions API:', safeRequestData);
+      
+      // Use the post helper from fetch-wrapper for consistent error handling
+      const { post } = await import('@/utils/fetch-wrapper');
+      
+      const questionsData = await post('/api/blueprints/questions', safeRequestData);
       
       console.log('Questions API response:', questionsData);
       
@@ -2648,7 +3121,7 @@ export function CreateBlueprintModal({
                             title: finalData.title,
                             search_query: finalData.search_query,
                             description: finalData.description,
-                            complexity: finalData.complexity,
+                            skill_level: finalData.skill_level,
                             estimated_time: finalData.estimated_time,
                             prerequisites: finalData.prerequisites,
                             content: {
@@ -2695,7 +3168,7 @@ export function CreateBlueprintModal({
                           title: finalData.title,
                           search_query: finalData.search_query,
                           description: finalData.description,
-                          complexity: finalData.complexity,
+                          skill_level: finalData.skill_level,
                           estimated_time: finalData.estimated_time,
                           prerequisites: finalData.prerequisites,
                           content: {
@@ -2855,21 +3328,6 @@ export function CreateBlueprintModal({
                     </div>
                     
                     <div className="border rounded-md overflow-hidden">
-                      <div className="flex border-b">
-                        <button 
-                          className={`px-4 py-2 text-sm font-medium ${!deleteDebugData ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}
-                          onClick={() => debugBlueprint(true)}
-                        >
-                          Blueprint Data
-                        </button>
-                        <button 
-                          className={`px-4 py-2 text-sm font-medium ${deleteDebugData ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}
-                          onClick={() => setIsDebugOpen(true)} // Just show the delete debug data tab
-                        >
-                          Delete Debug
-                        </button>
-                      </div>
-                      
                       {!deleteDebugData ? (
                         // Display blueprint data
                         <BlueprintDebugWindow

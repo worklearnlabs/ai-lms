@@ -524,37 +524,87 @@ export default function BlueprintsPage() {
   const handleBlueprintCreated = async (blueprintId: string) => {
     console.log("✅ Blueprint created successfully with ID:", blueprintId);
     
+    // Always close the modal first
+    setIsModalOpen(false);
+    
     // Refresh the blueprints list without a full page reload
     try {
       setLoading(true);
       const isDevelopment = process.env.NODE_ENV === 'development';
-      const apiUrl = isDevelopment 
-        ? '/api/blueprints?fetchAll=true' 
-        : '/api/blueprints';
       
-      const response = await fetch(apiUrl, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        cache: 'no-store'
-      });
+      // Maximum retry attempts if we don't find the new blueprint
+      const maxRetries = 3;
+      let retryCount = 0;
+      let newBlueprintFound = false;
       
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
-      }
+      // Retry function that will attempt to refresh until we find the new blueprint
+      const attemptRefresh = async (): Promise<void> => {
+        if (retryCount >= maxRetries) {
+          console.warn(`Maximum retries (${maxRetries}) reached. Blueprint may not appear immediately.`);
+          toast.info("Blueprint created successfully, but may not appear in the list yet. Refresh the page if needed.");
+          return;
+        }
+        
+        // Add timestamp to prevent caching
+        const timestamp = new Date().getTime();
+        const apiUrl = isDevelopment 
+          ? `/api/blueprints?fetchAll=true&t=${timestamp}` 
+          : `/api/blueprints?t=${timestamp}`;
+        
+        console.log(`Refreshing blueprint list (attempt ${retryCount + 1}) from: ${apiUrl}`);
+        
+        try {
+          const response = await fetch(apiUrl, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              'Pragma': 'no-cache',
+            },
+            cache: 'no-store'
+          });
+          
+          if (!response.ok) {
+            throw new Error(`API error: ${response.status}`);
+          }
+          
+          const data = await response.json();
+          console.log(`Received ${data.length} blueprints from API`);
+          
+          // Check if our newly created blueprint is in the list
+          newBlueprintFound = data.some((b: Blueprint) => b.id === blueprintId);
+          console.log(`Created blueprint (${blueprintId}) found in response: ${newBlueprintFound}`);
+          
+          // Update state with new data
+          setBlueprints(data);
+          setNoBlueprints(data.length === 0);
+          
+          // If we didn't find the new blueprint, try again after a delay
+          if (!newBlueprintFound && blueprintId) {
+            retryCount++;
+            console.log(`Blueprint not found, retrying in ${500 * retryCount}ms (attempt ${retryCount})`);
+            setTimeout(attemptRefresh, 500 * retryCount); // Increasing backoff delay
+          } else {
+            setLoading(false);
+          }
+        } catch (error) {
+          console.error("Error in refresh attempt:", error);
+          retryCount++;
+          if (retryCount < maxRetries) {
+            setTimeout(attemptRefresh, 500 * retryCount);
+          } else {
+            setLoading(false);
+            toast.error("Error refreshing blueprint list. Please reload the page.");
+          }
+        }
+      };
       
-      const data = await response.json();
-      
-      setBlueprints(data);
-      setNoBlueprints(data.length === 0);
-      setIsModalOpen(false); // Close the modal after successful creation
+      // Start the first attempt
+      await attemptRefresh();
     } catch (err) {
-      console.error("Error refreshing blueprints:", err);
-      // Even if refresh fails, close the modal to avoid confusion
-      setIsModalOpen(false);
-    } finally {
+      console.error("Error in handleBlueprintCreated:", err);
       setLoading(false);
+      toast.error("Blueprint created but list refresh failed. Please reload the page.");
     }
   };
   
