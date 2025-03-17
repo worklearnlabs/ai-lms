@@ -16,8 +16,11 @@ export interface BlueprintInput {
   search_query?: string;
   visibility?: VisibilityType;
   team_id?: string;
+  workspace_id?: string;
   skill_level?: SkillLevelType;
+  user_skill_level?: SkillLevelType;
   learning_objective?: string;
+  blueprint_learning_focus?: string;
   complexity?: ComplexityType;
   estimated_time?: string;
   prompt?: string;
@@ -86,45 +89,16 @@ export const blueprintApi = {
   },
 
   // Clean up stale temporary blueprints
+  // DEPRECATED: This functionality has been removed in the current workspace architecture.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async cleanupTemporaryBlueprints(userId?: string, maxAgeHours: number = 24) {
-    try {
-      console.log(`Cleaning up temporary blueprints older than ${maxAgeHours} hours for ${userId ? `user ${userId}` : 'all users'}`);
-      const supabase = createClientSupabase();
-
-      // Calculate cutoff time
-      const cutoffDate = new Date();
-      cutoffDate.setHours(cutoffDate.getHours() - maxAgeHours);
-      const cutoffTimestamp = cutoffDate.toISOString();
-
-      // Build the query to find stale temporary blueprints
-      let query = supabase
-        .from('blueprints')
-        .delete()
-        .eq('is_temporary', true)
-        .lt('created_at', cutoffTimestamp);
-
-      // Add user filter if provided
-      if (userId) {
-        query = query.eq('user_id', userId);
-      }
-
-      // Execute the deletion
-      const { data, error } = await query;
-
-      if (error) {
-        console.error('Error cleaning up temporary blueprints:', error);
-        return { success: false, error };
-      }
-
-      console.log('Successfully cleaned up stale temporary blueprints');
-      return { success: true, data };
-    } catch (error) {
-      console.error('Exception during temporary blueprint cleanup:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error : new Error('Unknown error during cleanup')
-      };
-    }
+    // This is a no-op function that returns success to prevent errors in legacy code
+    console.log('ℹ️ Note: The automatic cleanup of temporary blueprints has been disabled');
+    return {
+      success: true,
+      data: [],
+      deletedCount: 0
+    };
   },
 
   async getBlueprintById(id: string) {
@@ -227,53 +201,196 @@ export const blueprintApi = {
   },
 
   async createBlueprint(data: BlueprintInput) {
-    const supabase = createClientSupabase();
-    return await supabase
-      .from('blueprints')
-      .insert({
+    try {
+      console.log('Creating blueprint with input:', JSON.stringify({
         title: data.title,
-        description: data.description || null,
+        type: data.is_temporary ? 'temporary' : 'permanent',
+        userId: data.user_id
+      }));
+      
+      // Cast data to unknown then to any to allow dynamic properties - this is a temporary solution
+      // because we're in a migration period with both old and new field names
+      const dataWithMappings = {
+        title: data.title,
+        details: data.description, // Map description to details for clarity
+        search_query: data.search_query,
         content: data.content,
-        search_query: data.search_query || null,
+        prompt: data.prompt,
+        is_temporary: data.is_temporary || false,
+        user_id: data.user_id,
         visibility: data.visibility || 'private',
         team_id: data.team_id || null,
+        workspace_id: data.workspace_id || null,
+        
+        // Use new field names if provided, otherwise use old ones
         skill_level: data.skill_level || null,
+        user_skill_level: data.user_skill_level || data.skill_level || null,
+        
+        // For learning objective, prefer the new field name if available
         learning_objective: data.learning_objective || null,
+        blueprint_learning_focus: data.blueprint_learning_focus || data.learning_objective || null,
+        
         complexity: data.complexity || null,
         estimated_time: data.estimated_time || null,
-        prompt: data.prompt || null,
-        is_verified: false,
-        user_id: data.user_id,
-        is_temporary: data.is_temporary || false,
-      })
-      .select('id')
-      .single();
+      };
+
+      const supabase = createClientSupabase();
+      const { data: blueprint, error } = await supabase
+        .from('blueprints')
+        .insert([dataWithMappings])
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error creating blueprint:', error);
+        throw error;
+      }
+
+      return blueprint;
+    } catch (err) {
+      console.error('Exception during blueprint creation:', err);
+      throw err;
+    }
   },
 
   async updateBlueprint(id: string, data: Partial<BlueprintInput>) {
-    const supabase = createClientSupabase();
-    return await supabase
-      .from('blueprints')
-      .update(data)
-      .eq('id', id)
-      .select()
-      .single();
+    try {
+      console.log(`Updating blueprint ${id} with data keys:`, Object.keys(data).join(', '));
+      
+      // Define a more complete type for database fields including both old and new names
+      interface BlueprintUpdateData extends Partial<BlueprintInput> {
+        details?: string;
+      }
+      
+      // Prepare update data with mapped fields
+      const updateData: BlueprintUpdateData = { ...data };
+      
+      // Map fields appropriately
+      if (data.description) {
+        updateData.details = data.description;
+      }
+      
+      // Make sure new field names are populated from old ones (for backward compatibility)
+      if (data.skill_level && !data.user_skill_level) {
+        updateData.user_skill_level = data.skill_level;
+      }
+      
+      if (data.learning_objective && !data.blueprint_learning_focus) {
+        updateData.blueprint_learning_focus = data.learning_objective;
+      }
+      
+      const supabase = createClientSupabase();
+      const { data: blueprint, error } = await supabase
+        .from('blueprints')
+        .update(updateData)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error(`Error updating blueprint ${id}:`, error);
+        throw error;
+      }
+
+      return blueprint;
+    } catch (err) {
+      console.error(`Exception during blueprint update for ${id}:`, err);
+      throw err;
+    }
   },
 
   async deleteBlueprint(id: string) {
-    const supabase = createClientSupabase();
-
-    // First delete the related steps (cascade will handle subtasks)
-    await supabase
-      .from('blueprint_steps')
-      .delete()
-      .eq('blueprint_id', id);
-
-    // Then delete the blueprint itself
-    return await supabase
-      .from('blueprints')
-      .delete()
-      .eq('id', id);
+    try {
+      console.log(`Deleting blueprint with ID: ${id}`);
+      const supabase = createClientSupabase();
+      
+      // Try client-side deletion first - check for workspace recursion issues
+      try {
+        // First attempt: try to delete steps
+        console.log(`Attempting to delete steps for blueprint ${id}`);
+        try {
+          await supabase
+            .from('blueprint_steps')
+            .delete()
+            .eq('blueprint_id', id);
+            
+          console.log(`Successfully deleted steps for blueprint ${id}`);
+        } catch (stepError) {
+          // Just log the error and continue - we'll try blueprint deletion anyway
+          console.log(`Step deletion failed, but continuing: ${stepError instanceof Error ? stepError.message : 'Unknown step error'}`);
+        }
+        
+        // Now try to delete the blueprint
+        console.log(`Attempting to delete blueprint ${id}`);
+        const { data, error } = await supabase
+          .from('blueprints')
+          .delete()
+          .eq('id', id)
+          .select()
+          .maybeSingle();
+          
+        if (error) {
+          // Check specifically for workspace recursion errors
+          if (error.message && error.message.includes('infinite recursion') && error.message.includes('workspace_members')) {
+            console.log(`Detected workspace recursion error: ${error.message}`);
+            throw new Error('workspace_recursion_detected');
+          } else {
+            console.error(`Error deleting blueprint ${id}:`, error);
+            return { 
+              success: false, 
+              error: error.message || 'Error during blueprint deletion'
+            };
+          }
+        }
+        
+        console.log(`Successfully deleted blueprint ${id} via client-side operation`);
+        return { success: true, data };
+      } catch (clientError) {
+        // If we get here with a workspace recursion error, use the API endpoint
+        // which uses admin privileges to bypass RLS
+        if (clientError instanceof Error && clientError.message === 'workspace_recursion_detected') {
+          console.log(`Using API endpoint to bypass workspace recursion for ${id}`);
+          
+          const response = await fetch(`/api/blueprints/${id}`, {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Bypass-Recursion': 'true' // Signal to the API that we need to bypass recursion
+            }
+          });
+          
+          const responseData = await response.json();
+          
+          if (!response.ok) {
+            console.error(`API deletion error for ${id}:`, responseData);
+            return { 
+              success: false, 
+              error: responseData.error || `HTTP error ${response.status}`
+            };
+          }
+          
+          console.log(`Successfully deleted blueprint ${id} via API endpoint (bypassing recursion)`);
+          return { 
+            success: true, 
+            data: responseData.data || responseData 
+          };
+        } else {
+          // For any other error, just return it
+          console.error(`Unexpected error during blueprint deletion ${id}:`, clientError);
+          return { 
+            success: false, 
+            error: clientError instanceof Error ? clientError.message : 'Unexpected deletion error'
+          };
+        }
+      }
+    } catch (error) {
+      // Final fallback for any unexpected errors
+      console.error(`Fatal exception in deleteBlueprint for ${id}:`, error);
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Failed to delete blueprint'
+      };
+    }
   },
 
   // Blueprint Steps

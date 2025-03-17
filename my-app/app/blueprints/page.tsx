@@ -56,7 +56,7 @@ export default function BlueprintsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [noBlueprints, setNoBlueprints] = useState(false)
-  const [isCreatingSample, setIsCreatingSample] = useState(false)
+  const [isCreating, setIsCreating] = useState(false)
   const [temporaryBlueprintId, setTemporaryBlueprintId] = useState<string | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [selectedBlueprints, setSelectedBlueprints] = useState<string[]>([])
@@ -75,20 +75,8 @@ export default function BlueprintsPage() {
           `Authenticated as ${data.user.id}` : 
           "Not authenticated");
         
-        // If we have a user, clean up any stale temporary blueprints
-        if (data.user) {
-          try {
-            console.log("Cleaning up stale temporary blueprints...");
-            const cleanupResult = await blueprintApi.cleanupTemporaryBlueprints(data.user.id, 24);
-            if (cleanupResult.success) {
-              console.log("Successfully cleaned up stale temporary blueprints");
-            } else {
-              console.error("Failed to clean up stale temporary blueprints:", cleanupResult.error);
-            }
-          } catch (cleanupError) {
-            console.error("Error during temporary blueprint cleanup:", cleanupError);
-          }
-        }
+        // Temporary blueprint cleanup logic removed - this was legacy code
+        // that conflicts with the new workspace-based architecture
       } catch (err) {
         console.error("Auth check error:", err);
       }
@@ -239,36 +227,45 @@ export default function BlueprintsPage() {
 
   // Function to create a sample blueprint for debugging
   async function createSampleBlueprint() {
+    setIsCreating(true);
     try {
-      setIsCreatingSample(true);
-      
-      // Get the authenticated user
       const supabase = createClientSupabase();
-      const { data: authData } = await supabase.auth.getUser();
+      const { data: userData } = await supabase.auth.getUser();
       
-      if (!authData.user) {
-        alert("You need to be logged in to create a blueprint");
-        return;
-      }
+      // Set up sample blueprint template
+      const sampleBlueprint = {
+        title: "Social Media Automation",
+        description: "A workflow to automate social media posting across platforms.",
+        content: {
+          questions: [
+            { id: 1, title: "Platforms", content: "Which social media platforms do you need to automate?" },
+            { id: 2, title: "Content Type", content: "What kind of content do you typically share?" },
+            { id: 3, title: "Frequency", content: "How often do you need to post content?" }
+          ],
+          responses: {
+            "1": "Twitter, LinkedIn, Facebook",
+            "2": "Blog articles, company news, and industry trends",
+            "3": "2-3 times per week"
+          }
+        },
+        prompt: "Create a workflow to automate posting to Twitter, LinkedIn, and Facebook, sharing blog articles, company news, and industry trends 2-3 times per week.",
+        search_query: "Social media automation workflow for Twitter, LinkedIn, and Facebook",
+        visibility: "private",
+        skill_level: "beginner",
+        user_skill_level: "beginner",
+        blueprint_learning_focus: "Learn automation with APIs",
+        complexity: "low",
+        is_temporary: false,
+        user_id: userData.user?.id
+      };
       
-      const userId = authData.user.id;
-      console.log("Creating sample blueprint for user:", userId);
-      
-      // Create a sample blueprint through the API
+      // Create sample blueprint via API
       const response = await fetch('/api/blueprints', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          title: "Sample LinkedIn Data Scraper",
-          prompt: "Create a LinkedIn post scraper for AI news",
-          content: {}, // Empty content to start
-          search_query: "How to build a LinkedIn scraper for AI content using JavaScript",
-          visibility: "private",
-          skill_level: "beginner",
-          learning_objective: "Learn automation with APIs"
-        })
+        body: JSON.stringify(sampleBlueprint),
       });
       
       if (!response.ok) {
@@ -284,48 +281,50 @@ export default function BlueprintsPage() {
       console.error("Error creating sample blueprint:", error);
       alert("Failed to create sample blueprint. See console for details.");
     } finally {
-      setIsCreatingSample(false);
+      setIsCreating(false);
     }
   }
   
   // Function to create a temporary blueprint for testing
   async function createTemporaryBlueprint() {
+    setIsCreating(true);
     try {
-      setIsCreatingSample(true);
+      console.log('Creating temporary blueprint...');
       
       // Get the authenticated user
       const supabase = createClientSupabase();
       const { data: authData } = await supabase.auth.getUser();
       
       if (!authData.user) {
-        alert("You need to be logged in to create a blueprint");
+        console.error('Authentication required to create a blueprint');
+        alert('You need to be logged in to create a blueprint');
+        setIsCreating(false);
         return;
       }
       
       const userId = authData.user.id;
-      console.log("Creating temporary blueprint for user:", userId);
       
-      // Create a temporary blueprint through the API
+      // Create a temporary blueprint for in-progress creation workflow
+      const tempBlueprint = {
+        title: 'Untitled Blueprint',
+        prompt: '',
+        content: {}, // Empty content to start
+        visibility: 'private' as const,
+        skill_level: 'beginner' as const,
+        user_skill_level: 'beginner' as const,
+        learning_objective: '',
+        blueprint_learning_focus: '',
+        is_temporary: true,
+        user_id: userId
+      };
+      
+      // Create temporary blueprint via API
       const response = await fetch('/api/blueprints', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          title: "Temporary Blueprint Test",
-          prompt: "This is a temporary blueprint for testing",
-          content: {
-            questions: [
-              { id: 1, title: "Test Question", content: "This is a test question" }
-            ],
-            responses: {
-              "1": "This is a test response"
-            }
-          },
-          is_temporary: true, // Mark as temporary
-          visibility: "private",
-          user_id: userId
-        })
+        body: JSON.stringify(tempBlueprint),
       });
       
       if (!response.ok) {
@@ -341,7 +340,7 @@ export default function BlueprintsPage() {
       console.error("Error creating temporary blueprint:", error);
       alert("Failed to create temporary blueprint. See console for details.");
     } finally {
-      setIsCreatingSample(false);
+      setIsCreating(false);
     }
   }
 
@@ -373,13 +372,26 @@ export default function BlueprintsPage() {
         
         try {
           // Delete the blueprint
-          await blueprintApi.deleteBlueprint(blueprintId);
+          const response = await blueprintApi.deleteBlueprint(blueprintId);
           
-          results.push({
-            id: blueprintId,
-            title: blueprintTitle,
-            success: true
-          });
+          if (response && response.success) {
+            results.push({
+              id: blueprintId,
+              title: blueprintTitle,
+              success: true
+            });
+          } else {
+            // Handle error in response object format
+            const errorMessage = response?.error || "Deletion returned unsuccessful status";
+            console.error(`Error deleting blueprint ${blueprintId}:`, errorMessage);
+            
+            results.push({
+              id: blueprintId,
+              title: blueprintTitle,
+              success: false,
+              error: errorMessage
+            });
+          }
         } catch (error) {
           console.error(`Error deleting blueprint ${blueprintId}:`, error);
           
@@ -724,17 +736,17 @@ export default function BlueprintsPage() {
                   <Button 
                     variant="outline" 
                     onClick={createSampleBlueprint} 
-                    disabled={isCreatingSample}
+                    disabled={isCreating}
                     className="mb-2"
                   >
-                    {isCreatingSample ? 'Creating...' : 'Create Sample Blueprint (Debug)'}
+                    {isCreating ? 'Creating...' : 'Create Sample Blueprint (Debug)'}
                   </Button>
                   <Button 
                     variant="outline" 
                     onClick={createTemporaryBlueprint} 
-                    disabled={isCreatingSample}
+                    disabled={isCreating}
                   >
-                    {isCreatingSample ? 'Creating...' : 'Create Temporary Blueprint (Debug)'}
+                    {isCreating ? 'Creating...' : 'Create Temporary Blueprint (Debug)'}
                   </Button>
                   <p className="text-xs text-muted-foreground mt-2">
                     This will create a sample blueprint directly in the database for testing.

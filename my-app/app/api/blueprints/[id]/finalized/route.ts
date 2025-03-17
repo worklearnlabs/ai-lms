@@ -46,8 +46,8 @@ export async function GET(
           questions: blueprint.content?.questions || [],
           responses: blueprint.content?.responses || {},
           user_profile: {
-            skill_level: blueprint.complexity || blueprint.skill_level,
-            learning_objective: blueprint.learning_objective
+            skill_level: blueprint.user_skill_level || blueprint.complexity || blueprint.skill_level,
+            learning_objective: blueprint.blueprint_learning_focus || blueprint.learning_objective
           }
         },
         output: {

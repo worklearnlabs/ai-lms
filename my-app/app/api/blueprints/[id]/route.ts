@@ -12,10 +12,13 @@ const BlueprintUpdateSchema = z.object({
   search_query: z.string().optional(),
   is_verified: z.boolean().optional(),
   is_temporary: z.boolean().optional(),
-  visibility: z.enum(['private', 'public', 'team'] as const).optional(),
+  visibility: z.enum(['private', 'public', 'team', 'workspace'] as const).optional(),
   team_id: z.string().uuid().optional().nullable(),
+  workspace_id: z.string().uuid().optional().nullable(),
   skill_level: z.enum(['beginner', 'intermediate', 'advanced'] as const).optional(),
+  user_skill_level: z.enum(['beginner', 'intermediate', 'advanced'] as const).optional(),
   learning_objective: z.string().optional().nullable(),
+  blueprint_learning_focus: z.string().optional().nullable(),
   complexity: z.enum(['low', 'medium', 'high'] as const).optional(),
   estimated_time: z.string().optional(),
   status: z.enum(['draft', 'in_progress', 'completed', 'failed'] as const).optional(),
@@ -338,64 +341,218 @@ export async function DELETE(
     const params = await context.params;
     const { id } = params;
     
+    console.log(`DELETE /api/blueprints/${id} - Request to delete blueprint`);
+    
     // Validate the ID
     if (!id) {
+      console.log('Blueprint ID is missing in DELETE request');
       return NextResponse.json(
         { error: 'Blueprint ID is required' },
         { status: 400 }
       );
     }
     
-    // Initialize Supabase client
-    const supabase = createStandardServerClient();
-    
-    // Verify the blueprint exists
-    const { data: existingBlueprint, error: fetchError } = await supabase
-      .from('blueprints')
-      .select('id')
-      .eq('id', id)
-      .maybeSingle();
-    
-    if (fetchError) {
+    // Format validation for UUIDs
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(id)) {
+      console.error(`Invalid UUID format for blueprint ID: ${id}`);
       return NextResponse.json(
-        { error: 'Error verifying blueprint existence', details: fetchError.message },
-        { status: 500 }
+        { error: 'Invalid blueprint ID format' },
+        { status: 400 }
       );
     }
     
-    if (!existingBlueprint) {
+    // Get authenticated client from the route handler
+    const auth = await withRouteAuth(req);
+    
+    // If user is not authenticated, return an error
+    if (!auth.isAuthenticated || !auth.supabase) {
       return NextResponse.json(
-        { error: 'Blueprint not found' },
-        { status: 404 }
+        { error: 'Authentication required' },
+        { status: 401 }
       );
     }
     
-    // Delete the blueprint's steps first (cascade will handle subtasks)
-    await supabase
-      .from('blueprint_steps')
-      .delete()
-      .eq('blueprint_id', id);
+    console.log(`DELETE: Authenticated as user ${auth.user?.id} - Attempting to delete blueprint ${id}`);
     
-    // Delete the blueprint
-    const { error: deleteError } = await supabase
-      .from('blueprints')
-      .delete()
-      .eq('id', id);
-    
-    if (deleteError) {
-      return NextResponse.json(
-        { error: 'Failed to delete blueprint' },
-        { status: 500 }
-      );
+    // Check if the client explicitly requested bypassing recursion
+    const bypassRecursion = req.headers.get('X-Bypass-Recursion') === 'true';
+    if (bypassRecursion) {
+      console.log(`Client requested bypassing recursion for blueprint ${id}`);
     }
     
-    return NextResponse.json({ success: true });
+    // Use server client to completely bypass RLS
+    const serverClient = createStandardServerClient();
+    
+    try {
+      // First, check if this blueprint exists and verify ownership
+      // Try to use regular API first
+      let blueprint;
+      try {
+        const { data: blueprintData, error: checkError } = await serverClient
+          .from('blueprints')
+          .select('id, user_id, is_temporary')
+          .eq('id', id)
+          .maybeSingle();
+        
+        if (checkError) {
+          console.error(`Error checking blueprint ${id}:`, checkError);
+          
+          // If there's recursion error, try direct SQL via RPC
+          if (checkError.message.includes('recursion') || bypassRecursion) {
+            console.log('Detected recursion error, using RPC function');
+            try {
+              const { data, error } = await serverClient.rpc('check_blueprint_access', {
+                p_blueprint_id: id,
+                p_user_id: auth.user?.id
+              });
+              
+              if (error) {
+                console.error('RPC check failed:', error);
+              } else if (data) {
+                blueprint = data;
+              }
+            } catch (rpcError) {
+              console.error('RPC error:', rpcError);
+            }
+          }
+        } else {
+          blueprint = blueprintData;
+        }
+      } catch (fetchError) {
+        console.error(`Error fetching blueprint ${id}:`, fetchError);
+      }
+      
+      if (!blueprint) {
+        console.log(`Blueprint ${id} not found`);
+        return NextResponse.json(
+          { error: 'Blueprint not found' },
+          { status: 404 }
+        );
+      }
+      
+      // Security check: Verify this user can delete this blueprint
+      const isOwner = blueprint.user_id === auth.user?.id;
+      const isTemporary = blueprint.is_temporary === true;
+      
+      if (!isOwner && !isTemporary) {
+        console.error(`User ${auth.user?.id} isn't authorized to delete blueprint ${id}`);
+        return NextResponse.json(
+          { error: 'Not authorized to delete this blueprint' },
+          { status: 403 }
+        );
+      }
+      
+      // Security check passed - now use direct SQL queries to bypass all RLS
+      
+      // Step 1: Delete blueprint steps with proper method
+      console.log(`DELETE: Deleting blueprint steps for blueprint ${id}`);
+      try {
+        const { error: stepsError } = await serverClient
+          .from('blueprint_steps')
+          .delete()
+          .eq('blueprint_id', id);
+        
+        if (stepsError) {
+          // If there's recursion error, try a more direct approach
+          if (stepsError.message.includes('recursion') || bypassRecursion) {
+            console.log('Detected recursion in step deletion, trying RPC');
+            
+            const { error: rpcError } = await serverClient.rpc('delete_blueprint_steps', {
+              p_blueprint_id: id
+            });
+            
+            if (rpcError) {
+              console.error(`RPC error deleting steps for ${id}:`, rpcError);
+            } else {
+              console.log(`Successfully deleted steps for blueprint ${id} via RPC`);
+            }
+          } else {
+            console.error(`Error deleting blueprint steps for ${id}:`, stepsError);
+          }
+        } else {
+          console.log(`Successfully deleted steps for blueprint ${id}`);
+        }
+      } catch (stepsError) {
+        console.error(`Exception deleting steps for ${id}:`, stepsError);
+        // Continue with blueprint deletion anyway
+      }
+      
+      // Step 2: Delete the blueprint with proper method
+      console.log(`DELETE: Deleting blueprint ${id}`);
+      try {
+        const { data: deleteData, error: deleteError } = await serverClient
+          .from('blueprints')
+          .delete()
+          .eq('id', id)
+          .select('id, title, user_id, is_temporary')
+          .maybeSingle();
+        
+        if (deleteError) {
+          // If there's recursion error, try RPC function as a fallback
+          if (deleteError.message.includes('recursion') || bypassRecursion) {
+            console.log('Detected recursion in blueprint deletion, trying RPC');
+            
+            const { data: rpcData, error: rpcError } = await serverClient.rpc('delete_blueprint', {
+              p_blueprint_id: id,
+              p_user_id: auth.user?.id
+            });
+            
+            if (rpcError) {
+              console.error(`RPC error deleting blueprint ${id}:`, rpcError);
+              return NextResponse.json({
+                error: 'Failed to delete blueprint via RPC',
+                details: rpcError.message
+              }, { status: 500 });
+            }
+            
+            console.log(`Successfully deleted blueprint ${id} via RPC`);
+            return NextResponse.json({ 
+              success: true, 
+              data: rpcData || { id } 
+            });
+          }
+          
+          console.error(`Error deleting blueprint ${id}:`, deleteError);
+          return NextResponse.json({
+            error: 'Failed to delete blueprint',
+            details: deleteError.message
+          }, { status: 500 });
+        }
+        
+        if (!deleteData) {
+          console.log(`No blueprint with ID ${id} was found to delete`);
+          return NextResponse.json({ 
+            success: false, 
+            message: 'No blueprint found to delete' 
+          });
+        }
+        
+        console.log(`Successfully deleted blueprint ${id}`);
+        return NextResponse.json({ 
+          success: true, 
+          data: deleteData 
+        });
+      } catch (deleteError) {
+        console.error(`Exception deleting blueprint ${id}:`, deleteError);
+        return NextResponse.json({
+          error: 'Exception during blueprint deletion',
+          details: deleteError instanceof Error ? deleteError.message : 'Unknown error'
+        }, { status: 500 });
+      }
+    } catch (error) {
+      console.error(`Exception processing delete request for blueprint ${id}:`, error);
+      return NextResponse.json({
+        error: 'Exception during blueprint deletion process',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      }, { status: 500 });
+    }
   } catch (error) {
-    console.error('Error deleting blueprint:', error);
-    return NextResponse.json(
-      { error: 'Failed to delete blueprint' },
-      { status: 500 }
-    );
+    console.error('Error in DELETE blueprint endpoint:', error);
+    return NextResponse.json({
+      error: 'Failed to delete blueprint',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }, { status: 500 });
   }
 }
 

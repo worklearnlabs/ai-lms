@@ -300,6 +300,12 @@ CREATE POLICY blueprint_subtasks_public_view ON public.blueprint_subtasks FOR SE
 
 ```sql
 -- Blueprint Steps RLS Policies
+-- First drop existing policies to avoid conflicts
+DROP POLICY IF EXISTS blueprint_steps_owner_all ON public.blueprint_steps;
+DROP POLICY IF EXISTS blueprint_steps_public_view ON public.blueprint_steps;
+DROP POLICY IF EXISTS blueprint_steps_owner_delete ON public.blueprint_steps;
+DROP POLICY IF EXISTS blueprint_steps_temporary_delete ON public.blueprint_steps;
+
 -- Owner access through blueprints table
 CREATE POLICY blueprint_steps_owner_all ON public.blueprint_steps
   USING (blueprint_id IN (
@@ -313,6 +319,20 @@ CREATE POLICY blueprint_steps_owner_all ON public.blueprint_steps
 CREATE POLICY blueprint_steps_public_view ON public.blueprint_steps FOR SELECT
   USING (blueprint_id IN (
     SELECT id FROM public.blueprints WHERE visibility = 'public'
+  ));
+
+-- Explicit deletion policy for blueprint steps
+CREATE POLICY blueprint_steps_owner_delete ON public.blueprint_steps
+  FOR DELETE
+  USING (blueprint_id IN (
+    SELECT id FROM public.blueprints WHERE user_id = auth.uid()
+  ));
+
+-- Explicit deletion policy for temporary blueprint steps
+CREATE POLICY blueprint_steps_temporary_delete ON public.blueprint_steps
+  FOR DELETE
+  USING (blueprint_id IN (
+    SELECT id FROM public.blueprints WHERE is_temporary = true
   ));
 
 -- Team policy is omitted for now since team_members table doesn't exist
