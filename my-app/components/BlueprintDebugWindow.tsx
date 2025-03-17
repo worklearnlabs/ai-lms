@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Copy, Check, RefreshCw } from "lucide-react";
+import { Copy, Check, RefreshCw, CheckCircle, XCircle } from "lucide-react";
 import { cn } from "@/utils/utils";
 
 // Define the agent data structure to avoid TypeScript errors
@@ -19,22 +19,29 @@ interface AgentData {
       search_instruction_analysis?: string;
       output_format_analysis?: string;
     };
+    status?: 'pending' | 'passed' | 'failed';
   };
   research_agent?: {
     inputs?: {
       search_query: string;
       context?: string;
     };
+    outputs?: {
+      structured_data?: Record<string, unknown>;
+      raw_data?: string;
+    }
     expected_output_format?: {
       structure: string;
       example?: string;
     };
+    status?: 'pending' | 'passed' | 'failed';
   };
 }
 
 interface DebugWindowProps {
   blueprintData: Record<string, unknown> & {
     agents?: AgentData;
+    status?: 'pending' | 'passed' | 'failed';
   };
   apiDebugData?: {
     openaiRequest?: Record<string, unknown>;
@@ -55,19 +62,18 @@ export function BlueprintDebugWindow({
   onRefresh, 
   isLoading 
 }: DebugWindowProps) {
-  const [activeView, setActiveView] = useState<'blueprint' | 'api-flow' | 'agent-flow'>('blueprint');
+  const [activeView, setActiveView] = useState<'blueprint' | 'reasoning' | 'research'>('blueprint');
   const [hasCopied, setHasCopied] = useState(false);
   
   // Check if we have agent data in the debug info
-  const hasAgentData = blueprintData && 'agents' in blueprintData;
   const agents = (blueprintData?.agents || {}) as AgentData;
 
   const copyToClipboard = () => {
     const textToCopy = activeView === 'blueprint' 
       ? JSON.stringify(blueprintData, null, 2)
-      : activeView === 'api-flow' 
-        ? JSON.stringify(apiDebugData, null, 2)
-        : JSON.stringify(blueprintData?.agents || {}, null, 2);
+      : activeView === 'reasoning' 
+        ? JSON.stringify(agents.reasoning_agent || {}, null, 2)
+        : JSON.stringify(agents.research_agent || {}, null, 2);
     
     if (!textToCopy) return;
     
@@ -81,6 +87,25 @@ export function BlueprintDebugWindow({
       });
   };
 
+  // Status indicator component
+  const StatusIndicator = ({ status }: { status?: 'pending' | 'passed' | 'failed' }) => {
+    if (status === 'passed') {
+      return <span className="flex items-center text-green-500"><CheckCircle className="w-4 h-4 mr-1" /> Passed</span>;
+    } else if (status === 'failed') {
+      return <span className="flex items-center text-red-500"><XCircle className="w-4 h-4 mr-1" /> Failed</span>;
+    }
+    return <span className="flex items-center text-yellow-500">⏳ Pending</span>;
+  };
+
+  // Get question and response counts
+  const questionCount = Array.isArray(blueprintData?.questions) 
+    ? blueprintData.questions.length 
+    : 0;
+  
+  const responseCount = blueprintData?.responses 
+    ? Object.keys(blueprintData.responses).length 
+    : 0;
+
   return (
     <div className="mt-4 relative p-3 bg-slate-900 text-white text-xs rounded-md max-h-[90vh] font-mono overflow-hidden">
       {/* Sticky header with buttons that stays on top when scrolling */}
@@ -90,22 +115,20 @@ export function BlueprintDebugWindow({
             onClick={() => setActiveView('blueprint')}
             className={`px-3 py-1 rounded text-xs ${activeView === 'blueprint' ? 'bg-blue-600 text-white' : 'bg-slate-700 hover:bg-slate-600'}`}
           >
-            Blueprint Data
+            1. Blueprint Data
           </button>
           <button 
-            onClick={() => setActiveView('api-flow')}
-            className={`px-3 py-1 rounded text-xs ${activeView === 'api-flow' ? 'bg-blue-600 text-white' : 'bg-slate-700 hover:bg-slate-600'}`}
+            onClick={() => setActiveView('reasoning')}
+            className={`px-3 py-1 rounded text-xs ${activeView === 'reasoning' ? 'bg-blue-600 text-white' : 'bg-slate-700 hover:bg-slate-600'}`}
           >
-            API Flow Debug
+            2. Reasoning
           </button>
-          {hasAgentData && (
-            <button 
-              onClick={() => setActiveView('agent-flow')}
-              className={`px-3 py-1 rounded text-xs ${activeView === 'agent-flow' ? 'bg-green-600 text-white' : 'bg-slate-700 hover:bg-slate-600'}`}
-            >
-              Agent Data Flow
-            </button>
-          )}
+          <button 
+            onClick={() => setActiveView('research')}
+            className={`px-3 py-1 rounded text-xs ${activeView === 'research' ? 'bg-green-600 text-white' : 'bg-slate-700 hover:bg-slate-600'}`}
+          >
+            3. Research
+          </button>
         </div>
         <div className="flex space-x-1">
           {onRefresh && (
@@ -138,194 +161,173 @@ export function BlueprintDebugWindow({
       
       {/* Scrollable content area */}
       <div className="overflow-auto max-h-[calc(90vh-60px)]">
+        {/* BLUEPRINT TAB */}
         {activeView === 'blueprint' && (
-          <>
-            {typeof blueprintData === 'object' && 'message' in blueprintData ? (
-              <div className="p-4 bg-slate-800/50 rounded mb-4">
-                <p className="text-blue-300 text-sm">{String(blueprintData.message)}</p>
-              </div>
-            ) : (
-              <pre className="whitespace-pre-wrap">{JSON.stringify(blueprintData, null, 2)}</pre>
-            )}
-          </>
-        )}
-        
-        {activeView === 'api-flow' && (
           <div className="space-y-4">
-            {!apiDebugData && (
-              <p className="text-gray-400">No API debug data available yet. Complete the form to see the API flow.</p>
-            )}
-            
-            {apiDebugData?.error && (
-              <div className="p-4 bg-red-900/30 text-red-300 rounded mb-4">
-                <h4 className="font-bold">Error</h4>
-                <pre className="whitespace-pre-wrap">{JSON.stringify(apiDebugData.error, null, 2)}</pre>
-              </div>
-            )}
-            
-            {apiDebugData?.openaiRequest && (
-              <div className="p-4 bg-slate-800/50 rounded mb-4">
-                <h4 className="font-bold mb-2">OpenAI Request</h4>
-                <pre className="whitespace-pre-wrap overflow-auto max-h-40">
-                  {JSON.stringify(apiDebugData.openaiRequest, null, 2)}
-                </pre>
-              </div>
-            )}
-            
-            {apiDebugData?.openaiResponse && (
-              <div className="p-4 bg-blue-900/30 text-blue-200 rounded mb-4">
-                <h4 className="font-bold mb-2">OpenAI Response</h4>
-                <pre className="whitespace-pre-wrap overflow-auto max-h-40">
-                  {JSON.stringify(apiDebugData.openaiResponse, null, 2)}
-                </pre>
-              </div>
-            )}
-            
-            {apiDebugData?.blueprintCreationRequest && (
-              <div className="p-4 bg-slate-800/50 rounded mb-4">
-                <h4 className="font-bold mb-2">Blueprint Creation Request</h4>
-                <pre className="whitespace-pre-wrap overflow-auto max-h-40">
-                  {JSON.stringify(apiDebugData.blueprintCreationRequest, null, 2)}
-                </pre>
-              </div>
-            )}
-            
-            {apiDebugData?.blueprintCreationResponse && (
-              <div className="p-4 bg-purple-900/30 text-purple-200 rounded mb-4">
-                <h4 className="font-bold mb-2">Blueprint Creation Response</h4>
-                <pre className="whitespace-pre-wrap overflow-auto max-h-40">
-                  {JSON.stringify(apiDebugData.blueprintCreationResponse, null, 2)}
-                </pre>
-              </div>
-            )}
-            
-            {apiDebugData?.perplexityRequest && (
-              <div className="p-4 bg-slate-800/50 rounded mb-4">
-                <h4 className="font-bold mb-2">Perplexity Request</h4>
-                <pre className="whitespace-pre-wrap overflow-auto max-h-40">
-                  {JSON.stringify(apiDebugData.perplexityRequest, null, 2)}
-                </pre>
-              </div>
-            )}
-            
-            {apiDebugData?.perplexityResponse && (
-              <div className="p-4 bg-green-900/30 text-green-200 rounded mb-4">
-                <h4 className="font-bold mb-2">Perplexity Response</h4>
-                <pre className="whitespace-pre-wrap overflow-auto max-h-40">
-                  {JSON.stringify(apiDebugData.perplexityResponse, null, 2)}
-                </pre>
-              </div>
-            )}
-          </div>
-        )}
-        
-        {activeView === 'agent-flow' && hasAgentData && (
-          <div className="space-y-4">
-            {/* Reasoning Agent Section */}
-            <div className="mb-6">
-              <h3 className="text-sm font-bold text-blue-300 mb-2 uppercase border-b border-blue-800 pb-1">Reasoning Agent</h3>
-              
-              {/* Inputs */}
-              <div className="p-4 bg-slate-800/50 rounded mb-4">
-                <h4 className="font-bold mb-2 text-blue-200">Inputs</h4>
-                {agents.reasoning_agent?.inputs ? (
-                  <div>
-                    <div className="mb-3">
-                      <span className="text-gray-400">Prompt: </span>
-                      <span className="text-blue-300">{String(agents.reasoning_agent.inputs.prompt)}</span>
-                    </div>
-                    
-                    <div className="mb-3">
-                      <span className="text-gray-400">User Profile: </span>
-                      <div className="pl-4 border-l-2 border-gray-700 mt-1">
-                        <div><span className="text-gray-400">Skill Level: </span>{String(agents.reasoning_agent.inputs.user_profile?.skill_level)}</div>
-                        <div><span className="text-gray-400">Learning Objective: </span>{String(agents.reasoning_agent.inputs.user_profile?.learning_objective)}</div>
-                      </div>
-                    </div>
-                    
-                    <div>
-                      <span className="text-gray-400">Q&A Pairs:</span>
-                      <div className="mt-2 pl-4 border-l-2 border-gray-700">
-                        <pre className="whitespace-pre-wrap overflow-auto max-h-40">
-                          {JSON.stringify(agents.reasoning_agent.inputs.questions_and_answers, null, 2)}
-                        </pre>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-gray-400 italic">No reasoning agent inputs available</p>
-                )}
+            <div className="p-4 bg-slate-800/50 rounded mb-4">
+              <div className="flex justify-between items-center mb-2">
+                <h4 className="font-bold">Basic Blueprint Information</h4>
+                <StatusIndicator status={blueprintData?.status} />
               </div>
               
-              {/* Outputs */}
-              <div className="p-4 bg-blue-900/30 text-blue-200 rounded mb-4">
-                <h4 className="font-bold mb-2">Outputs</h4>
-                {agents.reasoning_agent?.outputs ? (
-                  <div>
-                    <div className="mb-3">
-                      <h5 className="text-xs font-bold text-blue-300 mb-1">Search Query:</h5>
-                      <div className="pl-4 border-l-2 border-blue-700 py-2 bg-blue-950/30 rounded">
-                        {String(agents.reasoning_agent.outputs.search_query)}
-                      </div>
-                    </div>
-                    
-                    <div className="mb-3">
-                      <h5 className="text-xs font-bold text-blue-300 mb-1">Search Query Analysis:</h5>
-                      <div className="pl-4 border-l-2 border-blue-700 mt-1">
-                        <div><span className="text-gray-400">Instructions: </span>{String(agents.reasoning_agent.outputs.search_instruction_analysis)}</div>
-                        <div><span className="text-gray-400">Output Format: </span>{String(agents.reasoning_agent.outputs.output_format_analysis)}</div>
-                      </div>
-                    </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="col-span-2">
+                  <div className="text-gray-400">Blueprint ID:</div>
+                  <div className="text-blue-300 break-all">{String(blueprintData?.id || blueprintData?.blueprint_id || 'Not available')}</div>
+                </div>
+                
+                <div className="col-span-2 mt-2">
+                  <div className="text-gray-400">Title:</div>
+                  <div>{String(blueprintData?.title || 'Not available')}</div>
+                </div>
+                
+                <div className="col-span-2 mt-2">
+                  <div className="text-gray-400">Prompt:</div>
+                  <div className="bg-slate-700/50 p-2 rounded mt-1 whitespace-pre-wrap">
+                    {String(blueprintData?.prompt || 'Not available')}
                   </div>
-                ) : (
-                  <p className="text-gray-400 italic">No reasoning agent outputs available yet</p>
-                )}
+                </div>
+                
+                <div className="mt-2">
+                  <div className="text-gray-400">Questions in DB:</div>
+                  <div>{questionCount}</div>
+                </div>
+                
+                <div className="mt-2">
+                  <div className="text-gray-400">Answers in DB:</div>
+                  <div>{responseCount}</div>
+                </div>
+                
+                <div className="mt-2">
+                  <div className="text-gray-400">Is Temporary:</div>
+                  <div>{blueprintData?.is_temporary === true ? 'Yes' : 'No'}</div>
+                </div>
+                
+                <div className="mt-2">
+                  <div className="text-gray-400">Skill Level:</div>
+                  <div>{String(blueprintData?.skill_level || 'Not specified')}</div>
+                </div>
+                
+                <div className="col-span-2 mt-2">
+                  <div className="text-gray-400">Learning Objective:</div>
+                  <div>{String(blueprintData?.learning_objective || 'Not specified')}</div>
+                </div>
               </div>
             </div>
             
-            {/* Research Agent Section */}
-            <div>
-              <h3 className="text-sm font-bold text-green-300 mb-2 uppercase border-b border-green-800 pb-1">Research Agent</h3>
-              
-              {/* Expected Inputs */}
-              <div className="p-4 bg-slate-800/50 rounded mb-4">
-                <h4 className="font-bold mb-2 text-green-200">Expected Inputs</h4>
-                {agents.research_agent?.inputs ? (
-                  <div>
-                    <div className="mb-3">
-                      <span className="text-gray-400">Search Query: </span>
-                      <div className="pl-4 border-l-2 border-gray-700 py-2 bg-slate-800/50 rounded mt-1">
-                        {String(agents.research_agent.inputs.search_query)}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-gray-400 italic">No research agent inputs available - search query needs to be generated first</p>
-                )}
+            {/* Full data dump for reference */}
+            <div className="p-4 bg-slate-800/20 rounded">
+              <div className="mb-2 text-gray-400">Full Blueprint Data:</div>
+              <pre className="whitespace-pre-wrap">{JSON.stringify(blueprintData, null, 2)}</pre>
+            </div>
+          </div>
+        )}
+        
+        {/* REASONING TAB */}
+        {activeView === 'reasoning' && (
+          <div className="space-y-4">
+            <div className="p-4 bg-blue-900/30 text-blue-200 rounded mb-4">
+              <div className="flex justify-between items-center mb-2">
+                <h4 className="font-bold">Reasoning Agent</h4>
+                <StatusIndicator status={agents.reasoning_agent?.status} />
               </div>
               
-              {/* Expected Output Format */}
-              <div className="p-4 bg-green-900/30 text-green-200 rounded">
-                <h4 className="font-bold mb-2">Expected Output Format</h4>
-                {agents.research_agent?.expected_output_format ? (
+              {/* Inputs Section */}
+              <div className="mb-4">
+                <h5 className="font-semibold text-blue-300 mb-2">Input</h5>
+                <div className="space-y-2">
                   <div>
-                    <div className="mb-2">
-                      <span className="text-gray-400">Structure: </span>
-                      {String(agents.research_agent.expected_output_format.structure)}
-                    </div>
-                    <div>
-                      <span className="text-gray-400">Example:</span>
-                      <div className="mt-2 pl-4 border-l-2 border-green-700 py-2 bg-green-950/30 rounded">
-                        <pre className="whitespace-pre-wrap overflow-auto max-h-60">
-                          {String(agents.research_agent.expected_output_format.example)}
-                        </pre>
-                      </div>
+                    <div className="text-gray-400">User Profile:</div>
+                    <div className="bg-blue-950/30 p-2 rounded mt-1">
+                      <div><span className="text-gray-400">Skill Level: </span>{String(agents.reasoning_agent?.inputs?.user_profile?.skill_level || 'Not specified')}</div>
+                      <div><span className="text-gray-400">Learning Objective: </span>{String(agents.reasoning_agent?.inputs?.user_profile?.learning_objective || 'Not specified')}</div>
                     </div>
                   </div>
-                ) : (
-                  <p className="text-gray-400 italic">No output format information available</p>
-                )}
+                  
+                  <div>
+                    <div className="text-gray-400">Constructed Prompt:</div>
+                    <div className="bg-blue-950/30 p-2 rounded mt-1 whitespace-pre-wrap">
+                      {String(agents.reasoning_agent?.inputs?.prompt || 'Not available')}
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <div className="text-gray-400">Q&A Pairs:</div>
+                    <div className="bg-blue-950/30 p-2 rounded mt-1 overflow-auto max-h-40">
+                      <pre className="whitespace-pre-wrap">
+                        {JSON.stringify(agents.reasoning_agent?.inputs?.questions_and_answers || 'Not available', null, 2)}
+                      </pre>
+                    </div>
+                  </div>
+                </div>
               </div>
+              
+              {/* Outputs Section */}
+              <div>
+                <h5 className="font-semibold text-blue-300 mb-2">Output</h5>
+                <div className="space-y-2">
+                  <div>
+                    <div className="text-gray-400">Search Query:</div>
+                    <div className="bg-blue-950/30 p-2 rounded mt-1 whitespace-pre-wrap">
+                      {String(agents.reasoning_agent?.outputs?.search_query || 'Not generated yet')}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            {/* Full reasoning data dump */}
+            <div className="p-4 bg-slate-800/20 rounded">
+              <div className="mb-2 text-gray-400">Full Reasoning Agent Data:</div>
+              <pre className="whitespace-pre-wrap">{JSON.stringify(agents.reasoning_agent, null, 2)}</pre>
+            </div>
+          </div>
+        )}
+        
+        {/* RESEARCH TAB */}
+        {activeView === 'research' && (
+          <div className="space-y-4">
+            <div className="p-4 bg-green-900/30 text-green-200 rounded mb-4">
+              <div className="flex justify-between items-center mb-2">
+                <h4 className="font-bold">Research Agent</h4>
+                <StatusIndicator status={agents.research_agent?.status} />
+              </div>
+              
+              {/* Inputs Section */}
+              <div className="mb-4">
+                <h5 className="font-semibold text-green-300 mb-2">Input</h5>
+                <div className="space-y-2">
+                  <div>
+                    <div className="text-gray-400">Search Query:</div>
+                    <div className="bg-green-950/30 p-2 rounded mt-1 whitespace-pre-wrap">
+                      {String(agents.research_agent?.inputs?.search_query || 'Not available')}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Outputs Section */}
+              <div>
+                <h5 className="font-semibold text-green-300 mb-2">Output</h5>
+                <div className="space-y-2">
+                  <div>
+                    <div className="text-gray-400">Structured JSON:</div>
+                    <div className="bg-green-950/30 p-2 rounded mt-1 overflow-auto max-h-60">
+                      <pre className="whitespace-pre-wrap">
+                        {agents.research_agent?.outputs?.structured_data 
+                          ? JSON.stringify(agents.research_agent.outputs.structured_data, null, 2) 
+                          : (agents.research_agent?.outputs?.raw_data || 'Not generated yet')}
+                      </pre>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            {/* Full research data dump */}
+            <div className="p-4 bg-slate-800/20 rounded">
+              <div className="mb-2 text-gray-400">Full Research Agent Data:</div>
+              <pre className="whitespace-pre-wrap">{JSON.stringify(agents.research_agent, null, 2)}</pre>
             </div>
           </div>
         )}
