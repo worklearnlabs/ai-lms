@@ -210,7 +210,7 @@ export default function BlueprintDebugPage() {
               <CardTitle>GET Request Results</CardTitle>
             </CardHeader>
             <CardContent>
-              <pre className="bg-gray-100 dark:bg-gray-800 p-4 rounded-md overflow-auto text-sm max-h-[500px]">
+              <pre className="bg-gray-100 dark:bg-gray-800 p-4 rounded-md overflow-auto text-sm max-h-[80vh]">
                 {JSON.stringify(result, null, 2)}
               </pre>
             </CardContent>

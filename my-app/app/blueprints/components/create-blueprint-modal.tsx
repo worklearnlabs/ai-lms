@@ -3327,7 +3327,7 @@ export function CreateBlueprintModal({
                       </Button>
                     </div>
                     
-                    <div className="border rounded-md overflow-hidden">
+                    <div className="border rounded-md overflow-hidden h-[calc(100vh-140px)]">
                       {!deleteDebugData ? (
                         // Display blueprint data
                         <BlueprintDebugWindow
@@ -3338,7 +3338,7 @@ export function CreateBlueprintModal({
                         />
                       ) : (
                         // Display delete operation debug data
-                        <div className="p-4 bg-black text-green-400 font-mono text-sm overflow-auto max-h-[70vh]">
+                        <div className="p-4 bg-black text-green-400 font-mono text-sm overflow-auto h-full flex flex-col">
                           <div className="flex justify-between items-center mb-2">
                             <span className="text-yellow-300">DELETE OPERATION DEBUG</span>
                             <Button 
@@ -3351,33 +3351,28 @@ export function CreateBlueprintModal({
                               Copy Debug Data
                             </Button>
                           </div>
-                          <div className="mb-4">
-                            <span className="text-blue-300">Status:</span> {
-                              deleteDebugData.status === 'request_in_progress' 
-                                ? 'REQUEST IN PROGRESS' 
-                                : (deleteDebugData.success 
-                                  ? 'SUCCESS (VERIFIED DELETED)' 
-                                  : deleteDebugData.api_response_indicates_success 
-                                    ? 'FAILURE (API REPORTED SUCCESS BUT BLUEPRINT STILL EXISTS)'
-                                    : 'FAILED')
-                            }
-                          </div>
-                          <div className="mb-4">
-                            <span className="text-blue-300">Blueprint:</span> {String(deleteDebugData?.blueprint_title || '')} ({String(deleteDebugData?.blueprint_id || '')})
-                          </div>
-                          <pre className="whitespace-pre-wrap overflow-auto">
-                            {JSON.stringify(deleteDebugData, null, 2)}
-                          </pre>
                           
-                          <div className="mt-6 flex gap-4">
-                            <Button 
-                              onClick={() => setIsDebugOpen(false)}
-                              variant="outline"
-                              size="sm"
-                            >
-                              Close Debugger
-                            </Button>
-                            
+                          <div className="overflow-auto flex-grow mb-4">
+                            <div className="mb-4">
+                              <span className="text-blue-300">Status:</span> {
+                                deleteDebugData.status === 'request_in_progress' 
+                                  ? 'REQUEST IN PROGRESS' 
+                                  : (deleteDebugData.success 
+                                    ? 'SUCCESS (VERIFIED DELETED)' 
+                                    : deleteDebugData.api_response_indicates_success 
+                                      ? 'FAILURE (API REPORTED SUCCESS BUT BLUEPRINT STILL EXISTS)'
+                                      : 'FAILED')
+                              }
+                            </div>
+                            <div className="mb-4">
+                              <span className="text-blue-300">Blueprint:</span> {String(deleteDebugData?.blueprint_title || '')} ({String(deleteDebugData?.blueprint_id || '')})
+                            </div>
+                            <pre className="whitespace-pre-wrap">
+                              {JSON.stringify(deleteDebugData, null, 2)}
+                            </pre>
+                          </div>
+                          
+                          <div className="mt-auto pt-4 flex gap-4 border-t border-gray-800">
                             <Button 
                               onClick={() => window.location.href = '/blueprints'}
                               variant="default"

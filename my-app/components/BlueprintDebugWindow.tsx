@@ -82,7 +82,7 @@ export function BlueprintDebugWindow({
   };
 
   return (
-    <div className="mt-4 relative p-3 bg-slate-900 text-white text-xs rounded-md max-h-[500px] font-mono overflow-hidden">
+    <div className="mt-4 relative p-3 bg-slate-900 text-white text-xs rounded-md max-h-[90vh] font-mono overflow-hidden">
       {/* Sticky header with buttons that stays on top when scrolling */}
       <div className="sticky top-0 right-0 z-20 flex justify-between bg-slate-900/95 backdrop-blur-sm py-1 mb-2 border-b border-slate-700">
         <div className="flex space-x-2">
@@ -137,7 +137,7 @@ export function BlueprintDebugWindow({
       </div>
       
       {/* Scrollable content area */}
-      <div className="overflow-auto max-h-[460px]">
+      <div className="overflow-auto max-h-[calc(90vh-60px)]">
         {activeView === 'blueprint' && (
           <>
             {typeof blueprintData === 'object' && 'message' in blueprintData ? (
