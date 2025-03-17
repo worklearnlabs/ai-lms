@@ -115,64 +115,66 @@ export const POST = createRouteHandler<FinalizeResponse>(
         blueprint_id
       });
       
-      // Variables to store user data from database
+      // If the user is authenticated, try to get their skill level and learning objectives from the database
       let userSkillLevel = user_skill_level;
       let userLearningObjective = learning_objective;
       
-      // If we have an authenticated user, try to get their skill level and learning objectives from the database
-      if (user) {
+      if (user && (!user_skill_level || !learning_objective)) {
+        console.log('User is authenticated, retrieving skill level and learning objectives from database');
+        
         try {
-          console.log('Fetching user profile data for user:', user.id);
-          
-          // Log the query we're about to execute
-          console.log('SQL query parameters:', {
-            table: 'users',
-            filter_column: 'id',
-            filter_value: user.id,
-            selected_columns: ['user_skill_level', 'learning_objectives']
-          });
-          
-          const { data: userData, error: userError } = await supabase
+          // Fetch user data from the users table by ID first
+          let { data: userData, error: userError } = await supabase
             .from('users')
-            .select('user_skill_level, learning_objectives')
+            .select('user_skill_level, user_learning_goals')
             .eq('id', user.id)
             .single();
           
+          // If no user found by ID and we have an email, try to find by email instead
+          if (userError && userError.code === 'PGRST116' && user.email) {
+            console.log('User not found by ID, trying to find by email:', user.email);
+            
+            const { data: userByEmail, error: emailError } = await supabase
+              .from('users')
+              .select('user_skill_level, user_learning_goals')
+              .eq('email', user.email)
+              .single();
+              
+            if (!emailError && userByEmail) {
+              console.log('Found user by email instead of ID');
+              console.log('Auth ID:', user.id);
+              userData = userByEmail;
+              userError = null;
+            } else if (emailError) {
+              console.log('Error finding user by email:', emailError);
+            }
+          }
+          
           if (userError) {
             console.warn('Error fetching user data:', userError);
-            // Log more details about the error
-            console.warn('Error details:', {
-              code: userError.code,
-              message: userError.message,
-              details: userError.details,
-              hint: userError.hint
-            });
           } else if (userData) {
-            console.log('Raw user data from database:', userData);
-            
-            // Only use the database values if not provided in the request
-            if (!userSkillLevel && userData.user_skill_level) {
-              console.log('Using skill level from user profile:', userData.user_skill_level);
+            // Use database values if provided fields are empty
+            if (!user_skill_level && userData.user_skill_level) {
+              console.log(`Using user_skill_level from database: ${userData.user_skill_level}`);
               userSkillLevel = userData.user_skill_level;
-            } else {
-              console.log('Not using database user_skill_level because:', !userSkillLevel ? 'userSkillLevel already set' : 'userData.user_skill_level is empty');
             }
             
-            if (!userLearningObjective && userData.learning_objectives) {
-              console.log('Using learning objectives from user profile:', userData.learning_objectives);
-              userLearningObjective = userData.learning_objectives;
-            } else {
-              console.log('Not using database learning_objectives because:', !userLearningObjective ? 'userLearningObjective already set' : 'userData.learning_objectives is empty');
+            if (!learning_objective && userData.user_learning_goals) {
+              console.log(`Using user_learning_goals from database: ${userData.user_learning_goals}`);
+              userLearningObjective = userData.user_learning_goals;
             }
-          } else {
-            console.log('No user data found in database for user ID:', user.id);
           }
-        } catch (userDataError) {
-          console.error('Failed to fetch user profile data:', userDataError);
+        } catch (dbError) {
+          console.error('Error retrieving user data from database:', dbError);
         }
-      } else {
-        console.log('No authenticated user available for profile data fetch');
       }
+      
+      // Prepare the final inputs for the reasoning agent
+      // Add comprehensive logging about user skill level and learning objective
+      console.log('Final user profile values used in prompt:');
+      console.log('  Skill Level:', userSkillLevel || 'Not specified');
+      console.log('  Learning Objective:', userLearningObjective || 'Not specified');
+      console.log('  Source:', user ? 'Authenticated user' : 'Anonymous user');
       
       // Verify the blueprint exists
       const { data: blueprint, error: blueprintError } = await supabase

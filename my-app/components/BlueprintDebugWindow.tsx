@@ -221,9 +221,9 @@ export function BlueprintDebugWindow({
                   <div>{String(blueprintData?.skill_level || 'Not specified')}</div>
                 </div>
                 
-                <div className="col-span-2 mt-2">
+                <div className="mt-2">
                   <div className="text-gray-400">Learning Objective:</div>
-                  <div>{String(blueprintData?.learning_objective || 'Not specified')}</div>
+                  <div>{String(blueprintData?.learning_objective || blueprintData?.user_learning_goals || 'Not specified')}</div>
                 </div>
               </div>
             </div>

@@ -2024,7 +2024,7 @@ export function CreateBlueprintModal({
           
           // Check if we have the skill level in either field
           const skillLevel = userData.user_skill_level || userData.skill_level;
-          const learningObjectives = userData.learning_objectives;
+          const learningObjectives = userData.user_learning_goals || userData.learning_objectives;
           
           if (skillLevel) {
             console.log(`[DEBUG] Found user skill level from debug endpoint: ${skillLevel}`);
@@ -2034,8 +2034,10 @@ export function CreateBlueprintModal({
           
           if (learningObjectives) {
             console.log(`[DEBUG] Found learning objectives from debug endpoint: ${learningObjectives}`);
+            console.log(`[DEBUG] Source field for learning objectives: ${userData.user_learning_goals ? 'user_learning_goals' : (userData.learning_objectives ? 'learning_objectives' : 'neither')}`);
           } else {
             console.log(`[DEBUG] No learning objectives found in user data`);
+            console.log(`[DEBUG] Available fields in userData:`, Object.keys(userData));
           }
         } else {
           // Try to get more information about the error
@@ -2090,6 +2092,21 @@ export function CreateBlueprintModal({
               skill_level: userData.skill_level,
               learning_objectives: userData.learning_objectives
             });
+            
+            // Log all fields to see what's available
+            console.log(`[DEBUG] All available fields in profile data:`, Object.keys(userData));
+            console.log(`[DEBUG] Raw learning_objectives value:`, userData.learning_objectives);
+            
+            if (!userData.learning_objectives) {
+              console.log(`[DEBUG] learning_objectives field is empty, checking if there are other fields that might contain this data`);
+              // Check if there are any fields that might contain learning objectives
+              const possibleFields = ['user_learning_goals', 'learning_objective', 'learningObjectives'];
+              for (const field of possibleFields) {
+                if (field in userData) {
+                  console.log(`[DEBUG] Found alternative field ${field} with value:`, userData[field]);
+                }
+              }
+            }
           } else {
             // Try to get more information about the error
             let errorDetails = '';
@@ -2202,12 +2219,21 @@ export function CreateBlueprintModal({
       // Structure the debug information in the new organized format
       const debugInfo = {
         id: tempBlueprintId,
-        title: blueprintData?.title || "Untitled Blueprint",
+        blueprint_id: blueprintData?.id || tempBlueprintId,
+        blueprint_title: blueprintData?.title || "Untitled Blueprint",
         prompt: blueprintData?.prompt || "No prompt available",
         questions: questionsData?.questions || [],
         responses: questionsData?.responses || {},
         skill_level: blueprintData?.skill_level || userData?.skill_level || userData?.user_skill_level || "Not specified",
-        learning_objective: blueprintData?.learning_objective || userData?.learning_objectives || "Not specified", 
+        learning_objective: (() => {
+          // Check for learning objectives in all possible fields
+          if (blueprintData?.learning_objective) return blueprintData.learning_objective;
+          if (userData?.user_learning_goals) return userData.user_learning_goals;
+          if (userData?.learning_objectives) return userData.learning_objectives;
+          if (userData?.learning_objective) return userData.learning_objective;
+          if (userData?.learningObjectives) return userData.learningObjectives;
+          return "Not specified";
+        })(),
         is_temporary: blueprintData?.is_temporary || false,
         status: 'pending', // Default status, will update below
         
@@ -2238,7 +2264,15 @@ export function CreateBlueprintModal({
               questions_and_answers: formattedQA,
               user_profile: {
                 skill_level: blueprintData?.skill_level || userData?.skill_level || userData?.user_skill_level || "Not specified",
-                learning_objective: blueprintData?.learning_objective || userData?.learning_objectives || "Not specified",
+                learning_objective: (() => {
+                  // Check for learning objectives in all possible fields
+                  if (blueprintData?.learning_objective) return blueprintData.learning_objective;
+                  if (userData?.user_learning_goals) return userData.user_learning_goals;
+                  if (userData?.learning_objectives) return userData.learning_objectives;
+                  if (userData?.learning_objective) return userData.learning_objective;
+                  if (userData?.learningObjectives) return userData.learningObjectives;
+                  return "Not specified";
+                })(),
                 user_data_source: userData ? "Database user profile" : "Not fetched from database"
               }
             },
