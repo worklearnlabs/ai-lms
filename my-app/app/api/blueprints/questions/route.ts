@@ -68,32 +68,71 @@ export async function GET(req: Request) {
       );
     }
     
+    console.log(`Fetching questions for blueprint: ${blueprint_id}`);
+    
     // Initialize Supabase client
     const supabase = createStandardServerClient();
     
-    // Get the questions for the specified blueprint
-    const { data, error } = await supabase
-      .from('blueprint_questions')
-      .select('*')
-      .eq('blueprint_id', blueprint_id)
-      .single();
-    
-    if (error) {
-      if (error.code === 'PGRST116') { // Not found
-        return NextResponse.json({ error: 'No questions found for this blueprint' }, { status: 404 });
+    // Try to extract user ID from cookies for permission check
+    let userId = '00000000-0000-0000-0000-000000000000'; // Default anonymous ID
+    try {
+      const token = extractSupabaseTokenFromCookies(req.headers.get('cookie') || '');
+      if (token) {
+        const extractedUserId = await getUserIdFromToken(token);
+        if (extractedUserId) {
+          userId = extractedUserId;
+        }
       }
-      
+    } catch (authError) {
+      console.log('No authenticated user found, proceeding with anonymous access', 
+        authError instanceof Error ? authError.message : 'Unknown error');
+    }
+    
+    // Use the RPC function to bypass RLS policies and infinite recursion
+    console.log(`Using RPC function to safely fetch questions for blueprint ${blueprint_id}`);
+    const { data: rpcResult, error: rpcError } = await supabase.rpc(
+      'get_blueprint_questions',
+      {
+        p_blueprint_id: blueprint_id,
+        p_user_id: userId
+      }
+    );
+    
+    // Handle RPC errors
+    if (rpcError) {
+      console.error(`Error in RPC function call for questions:`, rpcError);
       return NextResponse.json(
-        { error: 'Failed to fetch questions', details: error.message },
+        { error: 'Failed to fetch questions', details: rpcError.message },
         { status: 500 }
       );
     }
     
-    return NextResponse.json(data);
+    // Check if RPC function reported failure
+    if (!rpcResult?.success) {
+      console.error('RPC function reported failure:', rpcResult);
+      
+      if (rpcResult?.status === 403) {
+        return NextResponse.json(
+          { error: rpcResult?.error || 'Access denied' },
+          { status: 403 }
+        );
+      }
+      
+      return NextResponse.json(
+        { error: rpcResult?.error || 'Failed to fetch questions' },
+        { status: rpcResult?.status || 500 }
+      );
+    }
+    
+    // Return the questions data from the RPC result
+    console.log(`Successfully fetched questions for blueprint ${blueprint_id} via RPC`);
+    
+    // Return only the data part of the RPC result, to maintain backward compatibility
+    return NextResponse.json(rpcResult.data);
   } catch (error) {
     console.error('Error in GET questions:', error);
     return NextResponse.json(
-      { error: 'Failed to process request' },
+      { error: 'Failed to process request', details: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     );
   }

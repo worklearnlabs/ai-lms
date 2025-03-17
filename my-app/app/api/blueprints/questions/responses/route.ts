@@ -1,9 +1,6 @@
-import { NextResponse } from 'next/server';
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createRouteHandler } from '@/utils/route-handlers';
-import { createClient } from '@supabase/supabase-js';
-import { Database } from '@/types/supabase';
 
 // Define schema for POST request
 const SaveResponsesSchema = z.object({
@@ -37,19 +34,6 @@ type ErrorResponse = {
 
 type ApiResponse = SuccessResponse | ErrorResponse;
 
-// Create a service role client for admin operations
-function getServiceRoleClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  
-  if (!supabaseServiceKey) {
-    console.error('SUPABASE_SERVICE_ROLE_KEY is not set. Cannot create service role client.');
-    return null;
-  }
-  
-  return createClient<Database>(supabaseUrl, supabaseServiceKey);
-}
-
 /**
  * GET /api/blueprints/questions/responses?blueprint_id={id}
  * Retrieves stored questions and responses for a blueprint
@@ -71,50 +55,36 @@ export const GET = createRouteHandler<ApiResponse>(
       
       console.log(`Fetching questions for blueprint: ${blueprint_id}`);
       
-      // Check if this is a temporary blueprint
-      const { data: blueprintData, error: blueprintError } = await supabase
-        .from('blueprints')
-        .select('is_temporary, user_id')
-        .eq('id', blueprint_id)
-        .maybeSingle();
-        
-      if (blueprintError && blueprintError.code !== 'PGRST116') {
-        console.error('Error checking blueprint status:', blueprintError);
-      }
-      
-      // Determine if we need to use service role client (for temporary blueprints or if RLS might block)
-      const isTemporaryBlueprint = blueprintData?.is_temporary === true;
-      const shouldUseServiceRole = isTemporaryBlueprint || !user;
-      const dbClient = shouldUseServiceRole ? getServiceRoleClient() || supabase : supabase;
-      
-      // Get the questions from the blueprint_questions table
-      const { data: questionsData, error: questionsError } = await dbClient
-        .from('blueprint_questions')
-        .select('*')
-        .eq('blueprint_id', blueprint_id)
-        .maybeSingle();
-      
-      if (questionsError) {
-        console.error('Error fetching blueprint questions:', questionsError);
-        
-        if (questionsError.code === 'PGRST116') { // Not found
-          return NextResponse.json(
-            { 
-              questions: [],
-              responses: {},
-              message: 'No questions found for this blueprint' 
-            },
-            { status: 200 } // Return empty arrays instead of 404 for better client handling
-          );
+      // Use the RPC function to bypass RLS policies
+      console.log(`Using RPC function to safely fetch questions for blueprint ${blueprint_id}`);
+      const { data: rpcResult, error: rpcError } = await supabase.rpc(
+        'get_blueprint_questions',
+        {
+          p_blueprint_id: blueprint_id,
+          p_user_id: user?.id || '00000000-0000-0000-0000-000000000000' // Anonymous ID for temporary blueprints
         }
-        
+      );
+      
+      // Handle RPC errors
+      if (rpcError) {
+        console.error(`Error in RPC function call for questions:`, rpcError);
         return NextResponse.json(
-          { error: 'Failed to fetch questions', details: questionsError.message },
+          { error: 'Failed to fetch questions', details: rpcError.message },
           { status: 500 }
         );
       }
       
-      // Structure the response data
+      // Check if RPC function reported failure
+      if (!rpcResult?.success) {
+        console.error('RPC function reported failure:', rpcResult);
+        return NextResponse.json(
+          { error: rpcResult?.error || 'Failed to fetch questions' },
+          { status: rpcResult?.status || 500 }
+        );
+      }
+      
+      // Structure the response data from the RPC result
+      const questionsData = rpcResult.data;
       const responseData = {
         questions: questionsData?.questions || [],
         responses: questionsData?.responses || {},
@@ -124,7 +94,7 @@ export const GET = createRouteHandler<ApiResponse>(
       };
       
       // Log what we found for debugging
-      console.log(`Found ${responseData.questions.length} questions and ${Object.keys(responseData.responses).length} responses for blueprint ${blueprint_id}`);
+      console.log(`Successfully fetched ${responseData.questions.length} questions and ${Object.keys(responseData.responses).length} responses via RPC`);
       
       return NextResponse.json(responseData);
     } catch (error) {
