@@ -83,60 +83,80 @@ export default function BlueprintCard({
     isSelected ? 'ring-2 ring-primary border-primary' : ''
   }`;
 
-  // Determine whether to use a Link or a div based on isTemporary and selectionMode
-  if (isTemporary || selectionMode) {
+  // CARD CONTENT - same regardless of wrapper
+  const cardContent = (
+    <Card className={cardClassName}>
+      <CardHeader className="pb-2">
+        <div className="flex items-center gap-1.5 pr-7">
+          <CardTitle className="text-lg font-semibold">{title}</CardTitle>
+          {isVerified && (
+            <div className="flex-shrink-0 rounded-full bg-emerald-100 dark:bg-emerald-900/30 p-1 flex items-center justify-center">
+              <Check className="h-3 w-3 text-emerald-600 dark:text-emerald-400 stroke-[2.5]" />
+            </div>
+          )}
+          {isTemporary && (
+            <div className="flex-shrink-0 rounded-full bg-amber-100 dark:bg-amber-900/30 p-1 flex items-center justify-center">
+              <Clock className="h-3 w-3 text-amber-600 dark:text-amber-400 stroke-[2.5]" />
+            </div>
+          )}
+        </div>
+        <CardDescription className="line-clamp-2">{details}</CardDescription>
+      </CardHeader>
+      <CardContent className="flex-1">
+        <div className="flex items-center space-x-2 text-xs">
+          {isTemporary ? (
+            <Badge variant="secondary" className="text-xs px-2 py-0 bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300">
+              Draft
+            </Badge>
+          ) : (
+            <>
+              <Badge variant="outline" className="text-xs px-2 py-0">
+                {stepsCount} Steps
+              </Badge>
+              
+              {cloneCount !== undefined && cloneCount > 0 && (
+                <Badge variant="secondary" className="text-xs px-2 py-0 flex items-center">
+                  <GitFork className="h-3 w-3 mr-1" />
+                  {cloneCount} {cloneCount === 1 ? "Clone" : "Clones"}
+                </Badge>
+              )}
+            </>
+          )}
+        </div>
+      </CardContent>
+      <CardFooter className="pt-0 flex justify-between items-center">
+        <div className="text-xs text-muted-foreground">
+          Updated {getFormattedDate()}
+        </div>
+        <div className="flex items-center text-xs text-primary font-medium group">
+          {isTemporary ? 'Continue Editing' : 'View Details'}
+          <ArrowUpRight className="h-3 w-3 ml-1 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+        </div>
+      </CardFooter>
+    </Card>
+  );
+
+  // Now we determine the wrapper based on selection mode and temporary status
+  // Selection mode applies for both temporary and regular blueprints
+  if (selectionMode) {
     return (
       <div 
         className="block cursor-pointer transition-transform hover:-translate-y-1"
         onClick={handleCardClick}
       >
-        <Card 
-          className={cardClassName}
-          onClick={handleCardClick}
-        >
-          <CardHeader className="pb-2">
-            <div className="flex items-center gap-1.5 pr-7">
-              <CardTitle className="text-lg font-semibold">{title}</CardTitle>
-              {isTemporary && (
-                <div className="flex-shrink-0 rounded-full bg-amber-100 dark:bg-amber-900/30 p-1 flex items-center justify-center">
-                  <Clock className="h-3 w-3 text-amber-600 dark:text-amber-400 stroke-[2.5]" />
-                </div>
-              )}
-            </div>
-            <CardDescription className="line-clamp-2">{details}</CardDescription>
-          </CardHeader>
-          <CardContent className="flex-1">
-            <div className="flex items-center space-x-2 text-xs">
-              {isTemporary ? (
-                <Badge variant="secondary" className="text-xs px-2 py-0 bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300">
-                  Draft
-                </Badge>
-              ) : (
-                <>
-                  <Badge variant="outline" className="text-xs px-2 py-0">
-                    {stepsCount} Steps
-                  </Badge>
-                  
-                  {cloneCount !== undefined && cloneCount > 0 && (
-                    <Badge variant="secondary" className="text-xs px-2 py-0 flex items-center">
-                      <GitFork className="h-3 w-3 mr-1" />
-                      {cloneCount} {cloneCount === 1 ? "Clone" : "Clones"}
-                    </Badge>
-                  )}
-                </>
-              )}
-            </div>
-          </CardContent>
-          <CardFooter className="pt-0 flex justify-between items-center">
-            <div className="text-xs text-muted-foreground">
-              Updated {getFormattedDate()}
-            </div>
-            <div className="flex items-center text-xs text-primary font-medium group">
-              {isTemporary ? 'Continue Editing' : 'View Details'}
-              <ArrowUpRight className="h-3 w-3 ml-1 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
-            </div>
-          </CardFooter>
-        </Card>
+        {cardContent}
+      </div>
+    );
+  }
+  
+  // For temporary blueprints (when not in selection mode)
+  if (isTemporary) {
+    return (
+      <div 
+        className="block cursor-pointer transition-transform hover:-translate-y-1"
+        onClick={handleCardClick}
+      >
+        {cardContent}
       </div>
     );
   }
@@ -147,42 +167,7 @@ export default function BlueprintCard({
       href={`/blueprints/${id}`} 
       className="block transition-transform hover:-translate-y-1"
     >
-      <Card className={cardClassName}>
-        <CardHeader className="pb-2">
-          <div className="flex items-center gap-1.5 pr-7">
-            <CardTitle className="text-lg font-semibold">{title}</CardTitle>
-            {isVerified && (
-              <div className="flex-shrink-0 rounded-full bg-emerald-100 dark:bg-emerald-900/30 p-1 flex items-center justify-center">
-                <Check className="h-3 w-3 text-emerald-600 dark:text-emerald-400 stroke-[2.5]" />
-              </div>
-            )}
-          </div>
-          <CardDescription className="line-clamp-2">{details}</CardDescription>
-        </CardHeader>
-        <CardContent className="flex-1">
-          <div className="flex items-center space-x-2 text-xs">
-            <Badge variant="outline" className="text-xs px-2 py-0">
-              {stepsCount} Steps
-            </Badge>
-            
-            {cloneCount !== undefined && cloneCount > 0 && (
-              <Badge variant="secondary" className="text-xs px-2 py-0 flex items-center">
-                <GitFork className="h-3 w-3 mr-1" />
-                {cloneCount} {cloneCount === 1 ? "Clone" : "Clones"}
-              </Badge>
-            )}
-          </div>
-        </CardContent>
-        <CardFooter className="pt-0 flex justify-between items-center">
-          <div className="text-xs text-muted-foreground">
-            Updated {getFormattedDate()}
-          </div>
-          <div className="flex items-center text-xs text-primary font-medium group">
-            View Details
-            <ArrowUpRight className="h-3 w-3 ml-1 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
-          </div>
-        </CardFooter>
-      </Card>
+      {cardContent}
     </Link>
   );
 } 
