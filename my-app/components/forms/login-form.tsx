@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label"
 import { useState } from "react"
 import { useAuth } from "@/utils/auth" // Updated import path
 import { useRouter } from "next/navigation"
-import { Alert, AlertDescription } from "@/components/ui/alert"
+import { toast } from "sonner"
 import React from "react"
 
 // Custom styled input component
@@ -37,37 +37,33 @@ export function LoginForm({
 }: React.ComponentProps<"div">) {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
-  const [error, setError] = useState("")
-  const [successMessage, setSuccessMessage] = useState("")
   const [loading, setLoading] = useState(false)
   const { signIn } = useAuth()
   const router = useRouter()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError("")
-    setSuccessMessage("")
     setLoading(true)
     
     try {
       const result = await signIn(email, password)
       if (result.success) {
-        setSuccessMessage("Login successful! Redirecting to dashboard...")
+        toast.success("Login successful! Redirecting to dashboard...")
         router.push("/dashboard")
       } else {
         // Handle specific error messages
         if (result.error?.includes("Invalid login credentials")) {
-          setError("Invalid email or password. Please try again.")
+          toast.error("Invalid email or password. Please try again.")
         } else if (result.error?.includes("Email not confirmed")) {
-          setError("Please confirm your email before logging in. Check your inbox for a confirmation link.")
+          toast.error("Please confirm your email before logging in. Check your inbox for a confirmation link.")
         } else if (result.error?.includes("Failed to create user profile")) {
-          setError("There was an issue with your account setup. Please try again or contact support.")
+          toast.error("There was an issue with your account setup. Please try again or contact support.")
         } else {
-          setError(result.error || "An error occurred during login. Please try again.")
+          toast.error(result.error || "An error occurred during login. Please try again.")
         }
       }
     } catch (error) {
-      setError("An unexpected error occurred. Please try again later.")
+      toast.error("An unexpected error occurred. Please try again later.")
       console.error("Login error:", error)
     } finally {
       setLoading(false)
@@ -111,16 +107,6 @@ export function LoginForm({
                   Or continue with
                 </span>
               </div>
-              {error && (
-                <Alert variant="destructive">
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
-              {successMessage && (
-                <Alert>
-                  <AlertDescription className="text-green-600 dark:text-green-400">{successMessage}</AlertDescription>
-                </Alert>
-              )}
               <div className="grid gap-6">
                 <div className="grid gap-3">
                   <Label htmlFor="email">Email</Label>
