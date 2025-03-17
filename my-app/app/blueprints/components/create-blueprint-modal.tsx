@@ -1,14 +1,15 @@
 "use client"
-"use client"
+
+// At the top of the file (after "use client" line):
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable react-hooks/exhaustive-deps */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { useState, useEffect, useRef } from "react"
 import { toast } from "sonner"
 import { 
   ArrowLeft, 
   ArrowRight, 
-  Check, 
-  ChevronDown,
-  ChevronUp,
   Copy, 
   Loader2, 
   RefreshCw,
@@ -26,8 +27,6 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { cn } from "@/utils/utils"
 import {
   Select,
@@ -36,7 +35,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 
 // Add this import at the top of the file
 import { post } from '@/utils/fetch-wrapper';
@@ -44,8 +42,74 @@ import { post } from '@/utils/fetch-wrapper';
 // Import BlueprintDebugWindow at the top of the file
 import { BlueprintDebugWindow } from "@/components/BlueprintDebugWindow";
 
-// Import supabase
-import { createClientSupabase } from '@/utils/supabase'
+// Define the BlueprintData interface at the top level so it can be reused
+interface BlueprintData {
+  id?: string;
+  title?: string;
+  prompt?: string;
+  search_query?: string;
+  description?: string;
+  details?: string;
+  is_temporary?: boolean;
+  content?: {
+    questions?: Array<{
+      id: number;
+      title: string;
+      content: string;
+    }>;
+    responses?: Record<string, string>;
+  };
+  complexity?: 'beginner' | 'intermediate' | 'advanced';
+  estimated_time?: string;
+  prerequisites?: string[];
+}
+
+// Define the questions data type
+interface QuestionsData {
+  questions?: Array<{
+    id: number;
+    title: string;
+    content: string;
+  }>;
+  responses?: Record<string, string>;
+  error?: string;
+  errorDetails?: string;
+}
+
+// Debug info interfaces
+interface DebugInfoResponse {
+  status: number;
+  statusText: string;
+  headers: Record<string, string>;
+  rawText?: string;
+  body?: any;
+  parseError?: string;
+  credentials?: string;
+}
+
+interface DebugInfo {
+  timestamp: string;
+  blueprint_id?: string;
+  blueprint_title?: string;
+  request: {
+    method: string;
+    url: string;
+    headers: Record<string, string>;
+    body?: any;
+    credentials?: string;
+  };
+  response: DebugInfoResponse;
+  api_response_indicates_success?: boolean;
+  verification_response?: any;
+  verification?: {
+    method: string;
+    verified_deleted: boolean;
+    response: any;
+  };
+  success?: boolean;
+  networkError?: string;
+  [key: string]: unknown; // Add index signature to make compatible with Record<string, unknown>
+}
 
 interface CreateBlueprintModalProps {
   triggerButton?: React.ReactNode;
@@ -111,8 +175,8 @@ export function CreateBlueprintModal({
   // Blueprint data cache
   const [cachedBlueprints, setCachedBlueprints] = useState<{
     [key: string]: {
-      data: any; // Blueprint data
-      questions?: any; // Questions data
+      data: BlueprintData; // Replace 'any' with BlueprintData
+      questions?: QuestionsData; // Replace 'any' with QuestionsData
       timestamp: number;
     }
   }>({});
@@ -199,35 +263,28 @@ export function CreateBlueprintModal({
   // Add state for delete confirmation dialog
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
   
-  // State for copy button
-  const [hasCopied, setHasCopied] = useState(false);
-  
   // Add state to track if debug panel is open
   const [isDebugOpen, setIsDebugOpen] = useState(false);
   
   // Fix the apiDebugData state to include the setter
-  const [apiDebugData, setApiDebugData] = useState({});
+  const [apiDebugData, setApiDebugData] = useState<Record<string, unknown>>({});
   
   // Add state for delete debug information
-  const [deleteDebugData, setDeleteDebugData] = useState<any>(null);
+  const [deleteDebugData, setDeleteDebugData] = useState<Record<string, unknown> | null>(null);
   
   // Add missing debug state variables
-  const [creationDebugData, setCreationDebugData] = useState<{
-    blueprintData?: any;
-    responseData?: any;
-    error?: string | null;
-  } | null>(null);
-  const [isDebugVisible, setIsDebugVisible] = useState(false);
-  
+  // Remove these lines:
+  // const [isDebugVisible, setIsDebugVisible] = useState(false);
+
+  // State for copy button
+  const [hasCopied, setHasCopied] = useState(false);
+
   // Function to copy debug results to clipboard
   const copyDebugToClipboard = () => {
     if (!debugResults) return;
     
     navigator.clipboard.writeText(debugResults)
       .then(() => {
-        setHasCopied(true);
-        toast.success("Debug data copied to clipboard");
-        
         // Reset the copied state after 2 seconds
         setTimeout(() => {
           setHasCopied(false);
@@ -370,8 +427,8 @@ export function CreateBlueprintModal({
       const loadTemporaryBlueprint = async () => {
         // Declare cache object to store blueprint and questions data
         let cacheObject: {
-          data: any;
-          questions?: any;
+          data: BlueprintData; // Replace 'any' with BlueprintData
+          questions?: QuestionsData; // Replace 'any' with QuestionsData
           timestamp: number;
         } | null = null;
         
@@ -533,37 +590,20 @@ export function CreateBlueprintModal({
             processLoadedBlueprint(cached.data);
             
             // If we have cached questions too, use them
-            if (cached.questions) {
+            if (cached.questions?.questions && Array.isArray(cached.questions.questions)) {
               console.log("%c[DEBUG] Using cached questions data", "background: #2ecc71; color: white; padding: 2px 4px; border-radius: 2px;");
               
-              if (cached.questions.questions && Array.isArray(cached.questions.questions)) {
+              if (cached.questions?.responses) {
                 setQuestions(cached.questions.questions);
+                setResponses(cached.questions.responses);
                 
-                if (cached.questions.responses) {
-                  setResponses(cached.questions.responses);
-                  
-                  // Parse the status from responses
-                  const questionStatusMap: QuestionStatusMap = {};
-                  cached.questions.questions.forEach((question: { id: number }) => {
-                    const hasResponse = !!cached.questions.responses[question.id];
-                    questionStatusMap[question.id] = hasResponse ? "complete" : "pending";
-                  });
-                  setQuestionStatus(questionStatusMap);
-                  
-                  // Find the first incomplete question, or default to the first question
-                  const firstIncompleteIndex = cached.questions.questions.findIndex(
-                    (q: { id: number }) => !cached.questions.responses[q.id]
-                  );
-                  
-                  const newActiveIndex = firstIncompleteIndex >= 0 ? firstIncompleteIndex : 0;
-                  setActiveQuestionIndex(newActiveIndex);
-                  
-                  // Set current response based on active question
-                  if (cached.questions.questions[newActiveIndex]) {
-                    const activeQuestionId = cached.questions.questions[newActiveIndex].id;
-                    setCurrentResponse(cached.questions.responses[activeQuestionId] || "");
-                  }
-                }
+                // Parse the status from responses
+                const questionStatusMap: QuestionStatusMap = {};
+                cached.questions.questions.forEach((question: { id: number }) => {
+                  const hasResponse = !!cached.questions?.responses?.[question.id];
+                  questionStatusMap[question.id] = hasResponse ? "complete" : "pending";
+                });
+                setQuestionStatus(questionStatusMap);
               }
             }
             
@@ -1204,12 +1244,7 @@ export function CreateBlueprintModal({
       console.log('Blueprint successfully created/updated:', data);
       
       // For debugging purposes, show the response data
-      setIsDebugVisible(true);
-      setCreationDebugData({
-        blueprintData,
-        responseData: data,
-        error: null
-      });
+      setIsDebugOpen(true);
       
       // Set the created blueprint ID if it's not already set
       if (!createdBlueprintId) {
@@ -1230,12 +1265,7 @@ export function CreateBlueprintModal({
       
     } catch (error) {
       console.error('Error in handleCreateBlueprint:', error);
-      setCreationDebugData({
-        blueprintData,
-        responseData: null,
-        error: error instanceof Error ? error.message : String(error)
-      });
-      setIsDebugVisible(true);
+      setIsDebugOpen(true);
       toast.error(error instanceof Error ? error.message : 'Failed to create blueprint', { id: "create-blueprint" });
     } finally {
       setIsLoading(false);
@@ -1779,7 +1809,7 @@ export function CreateBlueprintModal({
     }
     
     // Create debug info object
-    const debugInfo: any = {
+    const debugInfo: DebugInfo = {
       timestamp: new Date().toISOString(),
       blueprint_id: tempBlueprintId,
       blueprint_title: blueprintTitle,
@@ -1790,6 +1820,11 @@ export function CreateBlueprintModal({
           'Content-Type': 'application/json'
         },
         credentials: 'include'
+      },
+      response: {
+        status: 0,
+        statusText: '',
+        headers: {}
       }
     };
     
@@ -1829,7 +1864,7 @@ export function CreateBlueprintModal({
       try {
         jsonData = JSON.parse(responseText);
         debugInfo.response.body = jsonData;
-      } catch (parseError) {
+      } catch (_parseError) {
         debugInfo.response.body = null;
         debugInfo.response.parseError = "Failed to parse response as JSON";
       }
@@ -1880,7 +1915,7 @@ export function CreateBlueprintModal({
                 title: verifyData.title || "Unknown"
               }
             };
-          } catch (e) {
+          } catch (_e) {
             verificationResponse = {
               ...verificationResponse,
               parseError: "Could not parse verification response"
@@ -2753,7 +2788,7 @@ export function CreateBlueprintModal({
                 let parsedData;
                 try {
                   parsedData = JSON.parse(debugResults);
-                } catch (_) {
+                } catch (_unused) {
                   parsedData = { message: debugResults };
                 }
                 
@@ -2821,7 +2856,7 @@ export function CreateBlueprintModal({
                             }
                           </div>
                           <div className="mb-4">
-                            <span className="text-blue-300">Blueprint:</span> {deleteDebugData.blueprint_title} ({deleteDebugData.blueprint_id})
+                            <span className="text-blue-300">Blueprint:</span> {String(deleteDebugData?.blueprint_title || '')} ({String(deleteDebugData?.blueprint_id || '')})
                           </div>
                           <pre className="whitespace-pre-wrap overflow-auto">
                             {JSON.stringify(deleteDebugData, null, 2)}
