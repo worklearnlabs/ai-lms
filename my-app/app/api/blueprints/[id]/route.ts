@@ -58,79 +58,54 @@ export async function GET(
     const auth = await withRouteAuth(req);
     console.log(`GET /api/blueprints/${id} - Auth status: ${auth.isAuthenticated ? 'Authenticated' : 'Not authenticated'}`);
     
-    // Always use a Supabase client - either authenticated or standard
+    // Get the Supabase client
     const supabase = auth.isAuthenticated && auth.supabase 
       ? auth.supabase
       : createStandardServerClient();
-      
-    console.log(`Querying Supabase for blueprint with ID: ${id}`);
     
-    // Direct query using createStandardServerClient to bypass auth issues
-    const directClient = createStandardServerClient();
-    console.log(`Also trying direct client query as fallback for ID: ${id}`);
+    // Try the RPC function first
+    console.log(`Using RPC function to bypass RLS for fetching blueprint ${id}`);
+    const { data: rpcResult, error: rpcError } = await supabase.rpc(
+      'get_blueprint_by_id',
+      {
+        p_blueprint_id: id,
+        p_user_id: auth.user?.id || '00000000-0000-0000-0000-000000000000' // Anonymous ID
+      }
+    );
     
-    // First try direct query to verify record exists
-    const { data: directCheckData, error: directCheckError } = await directClient
-      .from('blueprints')
-      .select('id, is_temporary, created_at')
-      .eq('id', id)
-      .maybeSingle();
-      
-    if (directCheckData) {
-      console.log(`Direct query found blueprint ${id}, created_at: ${directCheckData.created_at}, is_temporary: ${directCheckData.is_temporary}`);
-    } else {
-      console.log(`Direct query could not find blueprint ${id}, error:`, directCheckError);
+    // If RPC succeeded, return the results
+    if (!rpcError && rpcResult?.success) {
+      console.log(`Successfully retrieved blueprint ${id} via RPC`);
+      return NextResponse.json(rpcResult.data);
     }
     
-    // Try to fetch with details directly
-    const { data: blueprint, error } = await supabase
+    // If RPC failed but reported specific error (like not found or unauthorized)
+    if (!rpcError && rpcResult && !rpcResult.success) {
+      console.log(`RPC function reported controlled error: ${rpcResult.error}`);
+      return NextResponse.json(
+        { error: rpcResult.error || 'Error fetching blueprint' },
+        { status: rpcResult.status || 500 }
+      );
+    }
+    
+    // If RPC call itself failed, log the error and try direct query as fallback
+    if (rpcError) {
+      console.error(`RPC function error for blueprint ${id}:`, rpcError);
+    }
+    
+    // Fallback to direct query as a last resort
+    console.log(`Falling back to direct query for blueprint ${id}`);
+    const directClient = createStandardServerClient();
+    
+    // Try direct query to get the blueprint
+    const { data: blueprint, error } = await directClient
       .from('blueprints')
-      .select(`
-        *,
-        steps:blueprint_steps(*)
-      `)
+      .select('*')
       .eq('id', id)
       .single();
     
     if (error) {
-      console.error(`Error fetching blueprint ${id}:`, error);
-      
-      // Try again with direct client if original query failed but direct check worked
-      if (directCheckData) {
-        console.log(`Trying alternative fetch for ${id} using direct client`);
-        
-        const { data: altBlueprint, error: altError } = await directClient
-          .from('blueprints')
-          .select(`
-            *,
-            steps:blueprint_steps(*)
-          `)
-          .eq('id', id)
-          .single();
-          
-        if (!altError && altBlueprint) {
-          console.log(`Successfully retrieved blueprint ${id} using direct client`);
-          return NextResponse.json(altBlueprint);
-        } else {
-          console.error(`Alternative fetch for ${id} also failed:`, altError);
-        }
-      }
-      
-      // Provide more specific error messages based on the error code
-      if (error.code === 'PGRST116') {
-        return NextResponse.json(
-          { error: 'Blueprint not found', details: 'Blueprint exists but may not be accessible due to permissions' },
-          { status: 404 }
-        );
-      }
-      
-      if (error.code === 'PGRST104') {
-        return NextResponse.json(
-          { error: 'Blueprint not found', details: 'No blueprint with this ID exists in the database' },
-          { status: 404 }
-        );
-      }
-      
+      console.error(`Direct query could not find blueprint ${id}, error:`, error);
       return NextResponse.json(
         { error: 'Error fetching blueprint', details: error.message, code: error.code },
         { status: 500 }
@@ -150,7 +125,7 @@ export async function GET(
     // Return the blueprint directly instead of wrapping it
     return NextResponse.json(blueprint);
   } catch (error) {
-    console.error('Error fetching blueprint:', error);
+    console.error(`Error fetching blueprint:`, error);
     return NextResponse.json(
       { error: 'Failed to fetch blueprint', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
