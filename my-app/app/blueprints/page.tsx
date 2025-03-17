@@ -372,9 +372,11 @@ export default function BlueprintsPage() {
         
         try {
           // Delete the blueprint
+          console.log(`Initiating deletion for blueprint: ${blueprintId} (${blueprintTitle})`);
           const response = await blueprintApi.deleteBlueprint(blueprintId);
           
           if (response && response.success) {
+            console.log(`Successfully deleted blueprint: ${blueprintId} (${blueprintTitle})`);
             results.push({
               id: blueprintId,
               title: blueprintTitle,
@@ -383,7 +385,7 @@ export default function BlueprintsPage() {
           } else {
             // Handle error in response object format
             const errorMessage = response?.error || "Deletion returned unsuccessful status";
-            console.error(`Error deleting blueprint ${blueprintId}:`, errorMessage);
+            console.log(`Error deleting blueprint ${blueprintId}:`, errorMessage);
             
             results.push({
               id: blueprintId,
@@ -393,13 +395,19 @@ export default function BlueprintsPage() {
             });
           }
         } catch (error) {
-          console.error(`Error deleting blueprint ${blueprintId}:`, error);
+          // This should only happen if there's an exception during the deleteBlueprint call itself
+          // The function should normally return an error object instead of throwing
+          console.log(`Exception during deletion of blueprint ${blueprintId}:`, error);
+          
+          const errorMessage = error instanceof Error ? error.message : 
+                               typeof error === 'string' ? error : 
+                               'Unknown error during deletion';
           
           results.push({
             id: blueprintId,
             title: blueprintTitle,
             success: false,
-            error: error instanceof Error ? error.message : "Unknown error"
+            error: errorMessage
           });
         }
       }
@@ -418,69 +426,27 @@ export default function BlueprintsPage() {
       // Show toast notification with appropriate message
       if (failureCount === 0) {
         toast.success(
-          `Successfully deleted ${successCount} blueprint${successCount !== 1 ? 's' : ''}`,
-          { duration: 4000 }
+          `Successfully deleted ${successCount} blueprint${successCount !== 1 ? 's' : ''}`
         );
       } else if (successCount === 0) {
         toast.error(
-          `Failed to delete ${failureCount} blueprint${failureCount !== 1 ? 's' : ''}`,
-          { duration: 4000 }
+          `Failed to delete ${failureCount} blueprint${failureCount !== 1 ? 's' : ''}`
         );
       } else {
         toast.warning(
-          `Deleted ${successCount} blueprint${successCount !== 1 ? 's' : ''}, but failed to delete ${failureCount}`,
-          { duration: 4000 }
+          `Deleted ${successCount} blueprint${successCount !== 1 ? 's' : ''}, but failed to delete ${failureCount}`
         );
       }
       
-      // After showing the toast, refresh the blueprints data
-      // Don't use window.location.reload() to prevent full page reload
-      const fetchNewBlueprints = async () => {
-        try {
-          setLoading(true);
-          // Use the same API endpoint as in the fetchBlueprints function
-          const isDevelopment = process.env.NODE_ENV === 'development';
-          const apiUrl = isDevelopment 
-            ? '/api/blueprints?fetchAll=true' 
-            : '/api/blueprints';
-          
-          const response = await fetch(apiUrl, {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            cache: 'no-store'
-          });
-          
-          if (!response.ok) {
-            throw new Error(`API error: ${response.status}`);
-          }
-          
-          const data = await response.json();
-          
-          if (!data || !Array.isArray(data) || data.length === 0) {
-            setBlueprints([]);
-            setNoBlueprints(true);
-          } else {
-            setBlueprints(data);
-            setNoBlueprints(false);
-          }
-          
-          setError(null);
-        } catch (err) {
-          console.error("Error refreshing blueprints:", err);
-          setError("Failed to refresh blueprints");
-        } finally {
-          setLoading(false);
-          setIsDeletingMultiple(false);
-        }
-      };
-      
-      fetchNewBlueprints();
+      // Reload the page to refresh the blueprint list
+      // We use setTimeout to ensure the toast is visible first
+      setTimeout(() => {
+        window.location.reload();
+      }, 1000);
     } catch (error) {
-      console.error("Error in bulk deletion:", error);
-      toast.error("Failed to delete some blueprints", { duration: 4000 });
-      setShowDeleteConfirmation(false);
+      console.log("Bulk deletion operation error:", error);
+      toast.error("An error occurred during the deletion process");
+    } finally {
       setIsDeletingMultiple(false);
     }
   };

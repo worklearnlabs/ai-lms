@@ -23,7 +23,8 @@
     "db:push": "drizzle-kit push:pg",
     "db:studio": "drizzle-kit studio",
     "db:run-migrations": "tsx scripts/migrate.ts",
-    "db:update-rls": "node --experimental-json-modules scripts/apply-rls-policies.js"
+    "db:update-rls": "node --experimental-json-modules scripts/apply-rls-policies.js",
+    "db:fix-circular-rls": "node --experimental-json-modules scripts/apply-fix-workspace-policies.js"
   },
   "dependencies": {
     "@ai-sdk/openai": "^1.2.1",

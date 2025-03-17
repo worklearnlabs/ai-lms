@@ -57,6 +57,7 @@ DROP POLICY IF EXISTS blueprint_steps_temporary_delete ON public.blueprint_steps
 DROP POLICY IF EXISTS blueprint_steps_owner_all ON public.blueprint_steps;
 DROP POLICY IF EXISTS blueprint_steps_public_view ON public.blueprint_steps;
 DROP POLICY IF EXISTS blueprint_steps_workspace_view ON public.blueprint_steps;
+DROP POLICY IF EXISTS blueprint_steps_temporary_access ON public.blueprint_steps;
 
 -- Create explicit deletion policies for blueprint steps
 CREATE POLICY blueprint_steps_owner_all ON public.blueprint_steps

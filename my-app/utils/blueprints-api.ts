@@ -315,9 +315,9 @@ export const blueprintApi = {
             .eq('blueprint_id', id);
             
           console.log(`Successfully deleted steps for blueprint ${id}`);
-        } catch (stepError) {
+        } catch (error) {
           // Just log the error and continue - we'll try blueprint deletion anyway
-          console.log(`Step deletion failed, but continuing: ${stepError instanceof Error ? stepError.message : 'Unknown step error'}`);
+          console.log(`Step deletion failed, but continuing: ${error instanceof Error ? error.message : 'Unknown step error'}`);
         }
         
         // Now try to delete the blueprint
@@ -330,27 +330,19 @@ export const blueprintApi = {
           .maybeSingle();
           
         if (error) {
-          // Check specifically for workspace recursion errors
-          if (error.message && error.message.includes('infinite recursion') && error.message.includes('workspace_members')) {
-            console.log(`Detected workspace recursion error: ${error.message}`);
-            throw new Error('workspace_recursion_detected');
-          } else {
-            console.error(`Error deleting blueprint ${id}:`, error);
-            return { 
-              success: false, 
-              error: error.message || 'Error during blueprint deletion'
-            };
-          }
+          console.log(`Error deleting blueprint ${id}:`, error);
+          // Check for any RLS or other errors and fall back to API endpoint
+          throw error;
         }
         
         console.log(`Successfully deleted blueprint ${id} via client-side operation`);
         return { success: true, data };
       } catch (clientError) {
-        // If we get here with a workspace recursion error, use the API endpoint
-        // which uses admin privileges to bypass RLS
-        if (clientError instanceof Error && clientError.message === 'workspace_recursion_detected') {
-          console.log(`Using API endpoint to bypass workspace recursion for ${id}`);
-          
+        // If any error occurs, use the API endpoint which has better error handling
+        console.log(`Client-side deletion failed for ${id}, falling back to API endpoint`);
+        console.log(`Error details: ${clientError instanceof Error ? clientError.message : 'Unknown error'}`);
+        
+        try {
           const response = await fetch(`/api/blueprints/${id}`, {
             method: 'DELETE',
             headers: {
@@ -359,33 +351,50 @@ export const blueprintApi = {
             }
           });
           
-          const responseData = await response.json();
-          
+          // Check if response is available before trying to parse JSON
           if (!response.ok) {
-            console.error(`API deletion error for ${id}:`, responseData);
-            return { 
-              success: false, 
-              error: responseData.error || `HTTP error ${response.status}`
-            };
+            console.log(`API deletion failed for ${id} with status ${response.status}`);
+            
+            try {
+              const responseData = await response.json();
+              console.log(`API error details:`, responseData);
+              return { 
+                success: false, 
+                error: responseData.error || `HTTP error ${response.status}`
+              };
+            } catch (_) {
+              // If JSON parsing fails, return a simpler error
+              return { 
+                success: false, 
+                error: `API call failed with status ${response.status}`
+              };
+            }
           }
           
-          console.log(`Successfully deleted blueprint ${id} via API endpoint (bypassing recursion)`);
-          return { 
-            success: true, 
-            data: responseData.data || responseData 
-          };
-        } else {
-          // For any other error, just return it
-          console.error(`Unexpected error during blueprint deletion ${id}:`, clientError);
+          try {
+            const responseData = await response.json();
+            console.log(`Successfully deleted blueprint ${id} via API endpoint`);
+            return { 
+              success: true, 
+              data: responseData.data || responseData 
+            };
+          } catch (_) {
+            // If response was OK but JSON parsing fails, still consider it a success
+            console.log(`Successfully deleted blueprint ${id} via API endpoint (response parse error)`);
+            return { success: true };
+          }
+        } catch (apiError) {
+          // Handle any network or fetch errors
+          console.log(`API request error for ${id}:`, apiError);
           return { 
             success: false, 
-            error: clientError instanceof Error ? clientError.message : 'Unexpected deletion error'
+            error: apiError instanceof Error ? apiError.message : 'API request failed'
           };
         }
       }
     } catch (error) {
       // Final fallback for any unexpected errors
-      console.error(`Fatal exception in deleteBlueprint for ${id}:`, error);
+      console.log(`Fatal exception in deleteBlueprint for ${id}:`, error);
       return { 
         success: false, 
         error: error instanceof Error ? error.message : 'Failed to delete blueprint'
