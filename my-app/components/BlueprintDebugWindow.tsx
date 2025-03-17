@@ -229,7 +229,15 @@ export function BlueprintDebugWindow({
             <div className="p-4 bg-blue-900/30 text-blue-200 rounded mb-4">
               <div className="flex justify-between items-center mb-2">
                 <h4 className="font-bold">Reasoning Agent</h4>
-                <StatusIndicator status={agents.reasoning_agent?.status} />
+                {/* Only show passed if there's an actual search query */}
+                {agents.reasoning_agent?.outputs?.search_query ? (
+                  <StatusIndicator status="passed" />
+                ) : (
+                  <StatusIndicator status="pending" />
+                )}
+              </div>
+              <div className="text-xs text-blue-300 mb-3">
+                <i>Pass criteria: Search query successfully generated and stored</i>
               </div>
               
               {/* Inputs Section */}
@@ -248,15 +256,6 @@ export function BlueprintDebugWindow({
                     <div className="text-gray-400">Constructed Prompt:</div>
                     <div className="bg-blue-950/30 p-2 rounded mt-1 whitespace-pre-wrap">
                       {String(agents.reasoning_agent?.inputs?.prompt || 'Not available')}
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <div className="text-gray-400">Q&A Pairs:</div>
-                    <div className="bg-blue-950/30 p-2 rounded mt-1 overflow-auto max-h-40">
-                      <pre className="whitespace-pre-wrap">
-                        {JSON.stringify(agents.reasoning_agent?.inputs?.questions_and_answers || 'Not available', null, 2)}
-                      </pre>
                     </div>
                   </div>
                 </div>

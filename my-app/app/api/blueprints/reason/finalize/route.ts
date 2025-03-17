@@ -47,19 +47,23 @@ type FinalizeResponse = FinalizeSuccessResponse | FinalizeErrorResponse;
  * System prompt for generating the final blueprint
  */
 const getFinalizeSystemPrompt = () => `
-You are an AI assistant helping to create a detailed search query for an AI blueprint.
-Based on the user's initial prompt and their answers to clarifying questions, 
-create a comprehensive search query that will help generate an implementation plan.
+You are a REASONING AGENT in a multi-agent system designed to create educational AI blueprints. Your specific role is to analyze user inputs and formulate a comprehensive search query for a RESEARCH AGENT.
 
-Your task is to analyze the initial prompt and the responses to questions, then generate:
-1. A final blueprint title (clear and descriptive)
-2. A search_query - a detailed, specific query that captures all the requirements for implementation
-3. A concise description of the AI system
-4. A complexity level (beginner, intermediate, or advanced)
-5. An estimated time to implement
-6. A list of prerequisites or required knowledge
+## YOUR ROLE AND RESPONSIBILITIES:
+1. Analyze the user's initial prompt, skill level, learning objective, and their responses to clarifying questions
+2. Synthesize this information into a coherent understanding of what the user wants to build
+3. Create a detailed search query that will help the RESEARCH AGENT find the most relevant implementation information
+4. Structure all output in a specific JSON format for downstream processing
 
-Return your response as a structured JSON object:
+## CONTEXT:
+- You are part of a pipeline where a user has requested to build an AI system
+- Clarifying questions have been asked to better understand their requirements
+- Your output will be passed to a RESEARCH AGENT that will find implementation details
+- The final result will be an educational blueprint teaching the user how to build their desired AI system
+
+## OUTPUT INSTRUCTIONS:
+Return your response as a structured JSON object with the following fields:
+
 {
   "title": "Clear descriptive title for the blueprint",
   "search_query": "Detailed search terms and instructions for implementation (be specific and comprehensive)",
@@ -69,14 +73,21 @@ Return your response as a structured JSON object:
   "prerequisites": ["Prerequisite 1", "Prerequisite 2", ...]
 }
 
-IMPORTANT: The search_query should be detailed and comprehensive, as it will be used to generate a step-by-step implementation plan. It should capture all the specific requirements mentioned in both the initial prompt and the answers to clarifying questions.
+## IMPORTANT GUIDELINES:
+- The search_query is THE MOST IMPORTANT field - make it detailed, specific, and comprehensive
+- Include all key requirements, technologies, and specific implementation details in the search_query
+- Consider the user's skill level when determining complexity and prerequisites
+- Focus on addressing the learning objective provided by the user
+- Do not include raw Q&A pairs in your output - synthesize this information into the search_query
+
+Your task is to bridge the gap between the user's high-level request and the technical implementation details needed by the research agent.
 `;
 
 /**
  * POST /api/blueprints/reason/finalize
  * Processes all user responses and generates a refined search query and blueprint details
  */
-export const POST = createRouteHandler(
+export const POST = createRouteHandler<FinalizeResponse>(
   ['POST'],
   async (req: NextRequest, { supabase, user }) => {
     try {
@@ -137,19 +148,44 @@ export const POST = createRouteHandler(
       const questions = questionsData?.questions as BlueprintQuestion[] || [];
       
       // Use custom prompt if provided, otherwise build from components
-      const userPrompt = custom_prompt || `Initial prompt: "${prompt}"\n\n${
-        questions.length > 0 
-          ? 'Questions and responses:\n' + 
-            questions.map((q: BlueprintQuestion) => {
-              const questionId = q.id.toString();
-              const response = responses[questionId] || 'No response provided';
-              return `Question: ${q.title} - ${q.content}\nResponse: ${response}`;
-            }).join('\n\n')
-          : 'Additional responses:\n' + 
-            Object.entries(responses).map(([id, response]) => 
-              `Response ${id}: ${response}`
-            ).join('\n\n')
-      }${user_skill_level ? `\n\nUser Skill Level: ${user_skill_level}` : ''}${learning_objective ? `\n\nLearning Objective: ${learning_objective}` : ''}`;
+      const userPrompt = custom_prompt || `
+# Reasoning Agent Task: Blueprint Analysis and Search Query Formulation
+
+## User Request
+${prompt}
+
+## User Context
+${user_skill_level ? `Skill Level: ${user_skill_level}` : 'Skill Level: Not specified'}
+${learning_objective ? `Learning Objective: ${learning_objective}` : 'Learning Objective: Not specified'}
+
+## Requirements Analysis
+Based on analyzing the user's initial request and their responses to clarifying questions, I've gathered the following key requirements:
+
+${
+  questions.length > 0 
+    ? questions.map((q: BlueprintQuestion) => {
+        const questionId = q.id.toString();
+        const response = responses[questionId] || 'No response provided';
+        
+        // Extract key points from the response
+        return `### ${q.title}
+- Question: ${q.content}
+- Insight: ${response.substring(0, 100)}${response.length > 100 ? '...' : ''}
+- Key Requirements: [Identify technical needs, constraints, preferences]`;
+      }).join('\n\n')
+    : `[No clarifying questions were asked. Base your analysis solely on the initial request.]`
+}
+
+## Your Task
+As a REASONING AGENT, you need to:
+1. Synthesize all the above information
+2. Create a detailed, specific search query for the RESEARCH AGENT
+3. The search query should capture ALL implementation requirements
+4. Structure your response according to the specified JSON format
+5. Do NOT include raw Q&A pairs in your output - synthesize the information instead
+
+Remember that your search query will be used by the research agent to find relevant implementation details, so be comprehensive and specific.
+`;
       
       const conversationMessages = [
         {
