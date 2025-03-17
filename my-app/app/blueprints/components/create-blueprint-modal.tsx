@@ -116,6 +116,7 @@ interface CreateBlueprintModalProps {
   isOpen?: boolean;
   onOpenChange?: (open: boolean) => void;
   temporaryBlueprintId?: string | null;
+  onBlueprintCreated?: (blueprintId: string) => void;
 }
 
 // Reusable scroll-aware container component that hides the fade effect when at the bottom
@@ -152,12 +153,14 @@ export function CreateBlueprintModal({
   triggerButton,
   isOpen: externalIsOpen,
   onOpenChange: externalOnOpenChange,
-  temporaryBlueprintId
+  temporaryBlueprintId,
+  onBlueprintCreated
 }: CreateBlueprintModalProps) {
   // Declare state variables
   const [internalIsOpen, setInternalIsOpen] = useState(false);
   const [currentStep, setCurrentStep] = useState<'prompt' | 'conversation' | 'reason' | 'complete' | 'review'>('prompt');
   const [isLoading, setIsLoading] = useState(false);
+  const [isGeneratingAnswer, setIsGeneratingAnswer] = useState(false); // Separate loading state for answer generation
   const [prompt, setPrompt] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -1253,6 +1256,11 @@ export function CreateBlueprintModal({
       
       toast.success("Blueprint created successfully", { id: "create-blueprint" });
       
+      // Notify parent component that a blueprint was created
+      if (onBlueprintCreated) {
+        onBlueprintCreated(data.id);
+      }
+      
       // DEBUGGING: Prevent auto-closing and redirecting for now to allow debugging
       console.log("DEBUGGING: Keeping modal open for debugging. Normally would redirect.");
       
@@ -1568,23 +1576,43 @@ export function CreateBlueprintModal({
     await autoSaveResponse(currentQuestion.id, currentResponse);
   };
 
-  // Update current active question with response
-  const handleResponseChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newResponse = e.target.value;
+  // New helper function to handle response updates from any source
+  const handleResponseUpdate = (newResponse: string) => {
+    // Update the current response state
     setCurrentResponse(newResponse);
+    
+    // Get the current question
+    const currentQuestion = questions[activeQuestionIndex];
+    if (!currentQuestion || !newResponse.trim() || !tempBlueprintId) return;
+    
+    // Save the response to state
+    setResponses(prev => ({
+      ...prev,
+      [currentQuestion.id]: newResponse
+    }));
+    
+    // Mark as complete if it has content
+    if (newResponse.trim()) {
+      setQuestionStatus(prev => ({
+        ...prev,
+        [currentQuestion.id]: "complete"
+      }));
+    }
     
     // Cancel any pending auto-save
     if (autoSaveTimeoutRef.current) {
       clearTimeout(autoSaveTimeoutRef.current);
     }
     
-    // Set up a new auto-save timeout (1.5 seconds after typing stops)
-    const currentQuestion = questions[activeQuestionIndex];
-    if (currentQuestion && newResponse.trim() && tempBlueprintId) {
-      autoSaveTimeoutRef.current = setTimeout(() => {
-        autoSaveResponse(currentQuestion.id, newResponse);
-      }, 1500);
-    }
+    // Set up a new auto-save timeout
+    autoSaveTimeoutRef.current = setTimeout(() => {
+      autoSaveResponse(currentQuestion.id, newResponse);
+    }, 1500);
+  };
+
+  // Update current active question with response (refactored to use handleResponseUpdate)
+  const handleResponseChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    handleResponseUpdate(e.target.value);
   };
 
   // Clean up timeout on unmount
@@ -2074,7 +2102,8 @@ export function CreateBlueprintModal({
         console.log('Setting blueprint description from API response:', apiDescription);
         setDescription(apiDescription);
         
-        // Update the blueprint in the database with the received description
+        // Comment out the legacy PATCH request - data is already saved in the database
+        /*
         try {
           console.log(`Updating blueprint ${blueprintId} with description from questions API`);
           
@@ -2101,12 +2130,15 @@ export function CreateBlueprintModal({
           // Store in localStorage as fallback
           localStorage.setItem(`blueprint_details_${blueprintId}`, apiDescription);
         }
+        */
       } else {
         // Create a fallback description if none was provided by the API
         console.log('No description found in API response, generating fallback');
         const fallbackDescription = `This blueprint will create an AI that ${userPrompt.toLowerCase().startsWith('i need') ? userPrompt.substring(7) : userPrompt}`;
         setDescription(fallbackDescription);
         
+        // Comment out the legacy PATCH request - store in localStorage only
+        /*
         // Try to update the blueprint with the fallback description
         try {
           // FIX: Use PATCH endpoint to update instead of POST which may create a new record
@@ -2127,6 +2159,10 @@ export function CreateBlueprintModal({
           console.error('Failed to update with fallback description:', fallbackError);
           localStorage.setItem(`blueprint_details_${blueprintId}`, fallbackDescription);
         }
+        */
+        
+        // Just store in localStorage directly since we're not doing the PATCH
+        localStorage.setItem(`blueprint_details_${blueprintId}`, fallbackDescription);
       }
       
       // Process questions from the API response
@@ -2227,7 +2263,7 @@ export function CreateBlueprintModal({
   // Add this after the handleResponseChange function
   const generateBoilerplateAnswer = async (questionId: number, questionContent: string, answerLength: 'short' | 'medium' | 'long' = 'medium') => {
     try {
-      setIsLoading(true);
+      setIsGeneratingAnswer(true);
       toast.loading("Generating answer...", { id: "generate-answer" });
       
       console.log("Generating answer for question:", {
@@ -2260,8 +2296,21 @@ export function CreateBlueprintModal({
         console.log("Generated answer length:", data.answer.length, "characters");
         console.log("Generated answer preview:", data.answer.substring(0, 100) + "...");
         
-        // Update the current response
-        setCurrentResponse(data.answer);
+        // Use the helper function for consistent behavior with user input
+        handleResponseUpdate(data.answer);
+        
+        // For AI-generated content, save immediately without waiting for the debounce
+        const currentQuestion = questions[activeQuestionIndex];
+        if (currentQuestion && tempBlueprintId) {
+          // Clear any pending timeout to avoid double saves
+          if (autoSaveTimeoutRef.current) {
+            clearTimeout(autoSaveTimeoutRef.current);
+            autoSaveTimeoutRef.current = null;
+          }
+          
+          // Save immediately
+          await autoSaveResponse(currentQuestion.id, data.answer);
+        }
         
         toast.success("Answer generated", { id: "generate-answer" });
       } else {
@@ -2274,7 +2323,7 @@ export function CreateBlueprintModal({
         description: error instanceof Error ? error.message : "Unknown error"
       });
     } finally {
-      setIsLoading(false);
+      setIsGeneratingAnswer(false);
     }
   };
 
@@ -2517,7 +2566,7 @@ export function CreateBlueprintModal({
                         }}
                         disabled={isLoading}
                       >
-                        {isLoading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Wand2 className="h-3 w-3 mr-1" />}
+                        {isGeneratingAnswer ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Wand2 className="h-3 w-3 mr-1" />}
                         Generate
                       </Button>
                     </div>
@@ -2758,11 +2807,11 @@ export function CreateBlueprintModal({
                   isLoading || 
                   (currentStep === 'prompt' && !prompt.trim()) ||
                   (currentStep === 'prompt' && isExistingBlueprint && !promptChanged) ||
-                  (currentStep === 'conversation' && questions.length > 0 && questions.every(q => questionStatus[q.id] === 'pending'))
+                  (currentStep === 'conversation' && questions.length > 0 && !questions.every(q => questionStatus[q.id] === 'complete'))
                 }
                 className="gap-2 px-8"
               >
-                {isLoading ? (
+                {isLoading && !isGeneratingAnswer ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
                     {currentStep === 'prompt' ? "Generating Questions..." : (
@@ -2772,7 +2821,7 @@ export function CreateBlueprintModal({
                 ) : (
                   <>
                     {currentStep === 'prompt' && (isExistingBlueprint && promptChanged ? "Refresh Questions" : "Continue")}
-                    {currentStep === 'conversation' && "Next: Review Blueprint"}
+                    {currentStep === 'conversation' && (<>Next <ArrowRight className="h-4 w-4" /></>)}
                     {currentStep === 'review' && "Create Blueprint"}
                     {currentStep === 'prompt' && <ArrowRight className="h-4 w-4" />}
                   </>

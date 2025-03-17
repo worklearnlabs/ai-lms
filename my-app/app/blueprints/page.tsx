@@ -515,9 +515,47 @@ export default function BlueprintsPage() {
       return;
     }
     
-    console.log("Regular blueprint - navigation handled by Next.js Link");
+    console.log("Regular blueprint - navigation handled by Next.js Link component");
     // For regular blueprints, navigation is handled by the Next.js Link component
     // No action needed here as the Link component will handle the routing
+  };
+
+  // Handle blueprint creation callback
+  const handleBlueprintCreated = async (blueprintId: string) => {
+    console.log("✅ Blueprint created successfully with ID:", blueprintId);
+    
+    // Refresh the blueprints list without a full page reload
+    try {
+      setLoading(true);
+      const isDevelopment = process.env.NODE_ENV === 'development';
+      const apiUrl = isDevelopment 
+        ? '/api/blueprints?fetchAll=true' 
+        : '/api/blueprints';
+      
+      const response = await fetch(apiUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        cache: 'no-store'
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      setBlueprints(data);
+      setNoBlueprints(data.length === 0);
+      setIsModalOpen(false); // Close the modal after successful creation
+    } catch (err) {
+      console.error("Error refreshing blueprints:", err);
+      // Even if refresh fails, close the modal to avoid confusion
+      setIsModalOpen(false);
+    } finally {
+      setLoading(false);
+    }
   };
   
   return (
@@ -537,6 +575,7 @@ export default function BlueprintsPage() {
         isOpen={isModalOpen}
         onOpenChange={setIsModalOpen}
         temporaryBlueprintId={temporaryBlueprintId}
+        onBlueprintCreated={handleBlueprintCreated}
       />
       
       {/* Bulk Delete Confirmation Dialog */}
