@@ -45,6 +45,16 @@ type FinalizeResponse = FinalizeSuccessResponse | FinalizeErrorResponse;
 
 /**
  * System prompt for generating the final blueprint
+ * 
+ * NOTE ABOUT SEARCH QUERY GENERATION:
+ * The reasoning agent is instructed to create a natural language search query text
+ * rather than a fully structured JSON for Perplexity. This approach:
+ * 1. Reduces the risk of formatting errors when generating the search query
+ * 2. Allows us to maintain consistent JSON structure when we pass it to Perplexity
+ * 3. Gives us flexibility to modify the search query if needed before sending to Perplexity
+ * 
+ * The search_query field in the JSON response will contain this natural language query,
+ * which will later be injected into a structured prompt for the Perplexity research agent.
  */
 const getFinalizeSystemPrompt = () => `
 You are a REASONING AGENT in a multi-agent system designed to create educational AI blueprints. Your specific role is to analyze user inputs and formulate a comprehensive search query for a RESEARCH AGENT.
@@ -53,7 +63,7 @@ You are a REASONING AGENT in a multi-agent system designed to create educational
 1. Analyze the user's initial prompt, skill level, learning objective, and their responses to clarifying questions
 2. Synthesize this information into a coherent understanding of what the user wants to build
 3. Create a detailed search query that will help the RESEARCH AGENT find the most relevant implementation information
-4. Structure all output in a specific JSON format for downstream processing
+4. Your output will be used by a Perplexity-powered research system to find implementation details
 
 ## CONTEXT:
 - You are part of a pipeline where a user has requested to build an AI system
@@ -62,21 +72,22 @@ You are a REASONING AGENT in a multi-agent system designed to create educational
 - The final result will be an educational blueprint teaching the user how to build their desired AI system
 
 ## OUTPUT INSTRUCTIONS:
-Return your response as a structured JSON object with the following fields:
+Return your response with the following structure:
 
 {
   "title": "Clear descriptive title for the blueprint",
-  "search_query": "Detailed search terms and instructions for implementation (be specific and comprehensive)",
+  "search_query": "YOUR OPTIMIZED SEARCH QUERY TEXT HERE - make it detailed and comprehensive",
   "description": "A concise description of what this AI system does and its purpose",
   "skill_level": "beginner|intermediate|advanced",
   "estimated_time": "Estimated time to implement (e.g., '2-3 hours')",
   "prerequisites": ["Prerequisite 1", "Prerequisite 2", ...]
 }
 
-## IMPORTANT GUIDELINES:
-- The search_query is THE MOST IMPORTANT field - make it detailed, specific, and comprehensive
+## IMPORTANT GUIDELINES FOR THE SEARCH QUERY:
+- The search_query is THE MOST IMPORTANT field - it should be a natural language query, not a structured JSON
 - Include all key requirements, technologies, and specific implementation details in the search_query
-- Consider the user's skill level when determining complexity and prerequisites
+- Make the search query descriptive and specific enough to yield actionable implementation steps
+- Consider the user's skill level when crafting the search query
 - Focus on addressing the learning objective provided by the user
 - Do not include raw Q&A pairs in your output - synthesize this information into the search_query
 
@@ -240,12 +251,17 @@ ${
 ## Your Task
 As a REASONING AGENT, you need to:
 1. Synthesize all the above information
-2. Create a detailed, specific search query for the RESEARCH AGENT
-3. The search query should capture ALL implementation requirements
-4. Structure your response according to the specified JSON format
-5. Do NOT include raw Q&A pairs in your output - synthesize the information instead
+2. Create a detailed, specific search query text that will be used to retrieve implementation details
+3. Focus on including ALL implementation requirements, technologies, and specific implementation details
+4. Consider the user's skill level when determining the complexity of your search query
+5. Address the user's learning objective in your search query
+6. Make the search query comprehensive yet focused - it should yield specific, actionable implementation steps
+7. Do NOT structure your output as JSON - just provide the optimized search query text
 
-Remember that your search query will be used by the research agent to find relevant implementation details, so be comprehensive and specific.
+Example of a good search query:
+"Implement an automated LinkedIn post scheduler that uses an AI assistant to generate content. The system should connect to LinkedIn via API, support custom scheduling rules, and include a web interface for content approval. The implementation should be suitable for a beginner with minimal coding experience, focus on no-code tools where possible, and include detailed setup instructions for LinkedIn API authentication."
+
+Remember that your search query will be used to find relevant implementation details through an AI research system, so be comprehensive and specific without adding unnecessary formatting.
 `;
       
       const conversationMessages = [
