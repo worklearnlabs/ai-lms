@@ -1722,6 +1722,9 @@ export function CreateBlueprintModal({
       setFinalData(result);
       setEditableSearchQuery(result.search_query || "");
 
+      // Dismiss the loading toast and show success
+      toast.success("Search query generated successfully", { id: "generate-search-query" });
+
       // Record the generation completion timestamp
       const generationCompleteTime = new Date().toISOString();
       
