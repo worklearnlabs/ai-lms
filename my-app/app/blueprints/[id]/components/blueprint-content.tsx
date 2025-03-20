@@ -33,6 +33,19 @@ export default function BlueprintContent({
     .filter(item => item.type === 'step' && item.step)
     .map(item => item.step as Step);
 
+  // Log the content structure to debug
+  console.log("BlueprintContent - content:", content);
+
+  // Extract title and description from content
+  const titleItem = content.find(item => item.type === "heading");
+  const descriptionItem = content.find(item => item.type === "paragraph");
+  
+  // Get the title and description directly from content
+  const title = titleItem?.content;
+  const description = descriptionItem?.content;
+  
+  console.log("BlueprintContent - extracted:", { title, description });
+
   const handleRecreateBlueprint = (prompt: string) => {
     if (onRecreateBlueprint) {
       onRecreateBlueprint(prompt);
@@ -53,6 +66,8 @@ export default function BlueprintContent({
         steps={steps} 
         onNodeClick={onNodeClick}
         originalPrompt={originalPrompt}
+        title={title}
+        description={description}
         onRecreateBlueprint={handleRecreateBlueprint}
         onSubtaskSelect={handleSubtaskSelect}
       />

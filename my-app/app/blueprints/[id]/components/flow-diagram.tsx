@@ -28,7 +28,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 
 // Prompt Node component to display original prompt
-function PromptNode() {
+function PromptNode({ data }: NodeProps) {
+  console.log("PromptNode - received data:", data);
+  
   return (
     <div className="relative bg-background border border-border rounded-md shadow-md p-5 w-[400px]">
       {/* Bottom source handle to connect to first step - hidden if there's an edge */}
@@ -40,9 +42,9 @@ function PromptNode() {
       
       <div className="space-y-4">
         <div className="flex flex-col">
-          <h3 className="font-semibold text-lg mb-2">LinkedIn Data Scraper</h3>
+          <h3 className="font-semibold text-lg mb-2">{data.title || "Blueprint"}</h3>
           <p className="text-sm text-muted-foreground">
-            Automated daily search of LinkedIn posts containing specific keywords, followed by extraction and summarization.
+            {data.description || "Error fetching description"}
           </p>
         </div>
       </div>
@@ -450,6 +452,8 @@ function SubtaskBubble({ data }: NodeProps) {
 interface FlowDiagramProps {
   steps: Step[];
   originalPrompt?: string;
+  title?: string;
+  description?: string;
   onNodeClick?: (stepIndex: number, regeneratePrompt?: string) => void;
   onRecreateBlueprint?: (originalPrompt: string) => void;
   onSubtaskSelect?: (stepNumber: number, taskIndex: number, text: string) => void;
@@ -458,10 +462,20 @@ interface FlowDiagramProps {
 export default function FlowDiagram({ 
   steps, 
   originalPrompt, 
+  title: providedTitle,
+  description: providedDescription,
   onNodeClick, 
   onRecreateBlueprint,
   onSubtaskSelect
 }: FlowDiagramProps) {
+  // Log props for debugging
+  console.log("FlowDiagram - received props:", { 
+    providedTitle, 
+    providedDescription, 
+    originalPrompt,
+    hasSteps: steps?.length > 0 
+  });
+
   // Register node types
   const nodeTypes = useMemo(() => ({ 
     promptNode: PromptNode,
@@ -482,6 +496,8 @@ export default function FlowDiagram({
         position: { x: 350, y: 0 },
         data: { 
           originalPrompt: originalPrompt,
+          title: providedTitle,
+          description: providedDescription,
           onRecreateBlueprint
         }
       });

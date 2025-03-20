@@ -1,39 +1,92 @@
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
 import { getBlueprintById } from "@/utils/models";
 import ClientWrapper from "./components/client-wrapper";
-import { Button } from "@/components/ui/button";
-import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle2 } from "lucide-react";
 import BlueprintActionButton from "./components/blueprint-action-button";
 import CopyButton from "./components/copy-button";
 import TestButtonWrapper from "./components/test-button-wrapper";
+import { ContentItem } from "./types";
 
-interface PageProps {
-  params: {
-    id: string;
-  };
+// Dummy blueprint content for fallback
+const dummyLessonBlueprint = [
+  {
+    type: "heading",
+    content: "Implementation Plan"
+  },
+  {
+    type: "paragraph",
+    content: "This is a placeholder for the blueprint content."
+  },
+  {
+    type: "step",
+    step: {
+      number: 1,
+      title: "Getting Started",
+      estimatedTime: "15 minutes",
+      instructions: "This is a placeholder step. The actual research data will be loaded when available.",
+      toolTags: ["Research"],
+      completed: false
+    }
+  }
+] as ContentItem[];
+
+// Helper function to construct content with title and description
+function constructContentWithHeaders(
+  title: string, 
+  description: string, 
+  existingContent?: ContentItem[]
+): ContentItem[] {
+  const headerItems: ContentItem[] = [
+    {
+      type: "heading",
+      content: title
+    },
+    {
+      type: "paragraph",
+      content: description
+    }
+  ];
+  
+  if (!existingContent || existingContent.length === 0) {
+    return headerItems;
+  }
+  
+  // Filter out any existing heading or paragraph items to avoid duplicates
+  const nonHeaderItems = existingContent.filter(
+    item => item.type !== "heading" && item.type !== "paragraph"
+  );
+  
+  return [...headerItems, ...nonHeaderItems];
 }
 
-export default async function BlueprintPage(props: PageProps) {
-  // Await params before accessing its properties
-  const params = await props.params;
-  const blueprint = await getBlueprintById(params.id);
+export default async function BlueprintPage({
+  params,
+}: {
+  params: { id: string };
+}) {
+  const id = params.id;
+  const blueprint = await getBlueprintById(id);
 
-  // Fallback content if no blueprint is found
   if (!blueprint) {
     return (
-      <div className="flex flex-col items-center justify-center h-full p-6">
-        <h1 className="text-2xl font-bold mb-2">Blueprint Not Found</h1>
-        <p className="text-muted-foreground mb-4">The blueprint you&apos;re looking for does not exist or has been removed.</p>
-        <Button asChild>
-          <Link href="/blueprints">Back to Blueprints</Link>
-        </Button>
+      <div className="flex items-center justify-center h-[calc(100vh-4rem)]">
+        <div className="text-center space-y-2">
+          <h2 className="text-2xl font-bold">Blueprint not found</h2>
+          <p className="text-muted-foreground">
+            We couldn&apos;t find a blueprint with the ID {id}
+          </p>
+          <Link href="/blueprints" className="inline-block">
+            <Button>Go back to Blueprints</Button>
+          </Link>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-[calc(100vh-4rem)]">
       {/* Header with blueprint title and status */}
       <div className="p-6 flex items-center justify-between border-b">
         <div className="flex flex-col">
@@ -67,7 +120,12 @@ export default async function BlueprintPage(props: PageProps) {
       <div className="flex-1 overflow-auto">
         <ClientWrapper 
           originalPrompt={blueprint.prompt} 
-          content={blueprint.content}
+          content={constructContentWithHeaders(
+            blueprint.title, 
+            blueprint.details || "No details available", 
+            blueprint.content || dummyLessonBlueprint
+          )}
+          blueprintId={id}
         />
       </div>
     </div>

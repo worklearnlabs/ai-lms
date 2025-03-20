@@ -1542,18 +1542,22 @@ export function CreateBlueprintModal({
         
         // Set the created blueprint ID if it's not already set
         if (!createdBlueprintId) {
-          setCreatedBlueprintId(data.id);
+          setCreatedBlueprintId(blueprintId);
         }
+        
+        // Use the known blueprint ID for research - don't rely on API response containing it
+        const blueprintIdForResearch = blueprintId; // Use the ID we sent to the API
+        console.log("Using blueprint ID for research:", blueprintIdForResearch);
         
         // Update toast message
         toast.loading("Generating research data...", { id: "create-blueprint" });
         
         // Now that the blueprint is updated, generate research
         try {
-          console.log("Generating research for blueprint:", data.id);
+          console.log("Generating research for blueprint:", blueprintIdForResearch);
           
-          // Call the research API endpoint
-          const researchResponse = await fetch(`/api/blueprints/${data.id}/research`, {
+          // Call the research API endpoint with the confirmed ID
+          const researchResponse = await fetch(`/api/blueprints/${blueprintIdForResearch}/research`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -1601,11 +1605,11 @@ export function CreateBlueprintModal({
           // Add a small delay before notifying the parent to ensure database consistency
           setTimeout(() => {
             if (onBlueprintCreated) {
-              onBlueprintCreated(data.id);
+              onBlueprintCreated(blueprintIdForResearch);
             }
             
             // Redirect to the blueprint page after successful creation
-            router.push(`/blueprints/${data.id}`);
+            router.push(`/blueprints/${blueprintIdForResearch}`);
           }, 500);
         } catch (researchError) {
           console.error("Research generation error:", researchError);
@@ -1640,10 +1644,10 @@ export function CreateBlueprintModal({
           
           setTimeout(() => {
             if (onBlueprintCreated) {
-              onBlueprintCreated(data.id);
+              onBlueprintCreated(blueprintIdForResearch);
             }
             
-            router.push(`/blueprints/${data.id}`);
+            router.push(`/blueprints/${blueprintIdForResearch}`);
           }, 500);
         }
       } catch (error) {

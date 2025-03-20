@@ -76,8 +76,41 @@ export async function getBlueprints(userId: string): Promise<Blueprint[]> {
 }
 
 export async function getBlueprintById(id: string): Promise<Blueprint | null> {
-  const mockBlueprints = await getBlueprints("any-user");
-  return mockBlueprints.find(blueprint => blueprint.id === id) || null;
+  try {
+    // Import the blueprintApi here to avoid circular dependencies
+    const { blueprintApi } = await import('./blueprints-api');
+    
+    // Call the real API implementation
+    const { data, error } = await blueprintApi.getBlueprintById(id);
+    
+    // Log for debugging
+    console.log(`models.getBlueprintById: Result for ${id}`, { 
+      success: !!data, 
+      error: error ? `${error.code}: ${error.message}` : null 
+    });
+    
+    if (error || !data) {
+      console.error(`models.getBlueprintById: Error fetching blueprint ${id}:`, error);
+      return null;
+    }
+    
+    // Transform the data format from Supabase to the Blueprint interface
+    return {
+      id: data.id,
+      title: data.title || 'Untitled Blueprint',
+      prompt: data.prompt || '',
+      content: data.content || [],
+      isVerified: data.is_verified || false,
+      stepsCount: Array.isArray(data.steps) ? data.steps.length : 0,
+      details: data.details || '',
+      userId: data.user_id || '',
+      createdAt: data.created_at || new Date().toISOString(),
+      updatedAt: data.updated_at || new Date().toISOString(),
+    };
+  } catch (error) {
+    console.error(`models.getBlueprintById: Exception fetching blueprint ${id}:`, error);
+    return null;
+  }
 }
 
 export async function createBlueprint(input: BlueprintCreateInput): Promise<Blueprint> {

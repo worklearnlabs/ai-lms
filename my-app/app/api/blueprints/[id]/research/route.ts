@@ -21,6 +21,16 @@ export const POST = createRouteHandler<ErrorResponse | SuccessResponse>(
       console.log('==== RESEARCH GENERATION REQUEST ====');
       const awaitedParams = await params;
       const { id } = awaitedParams as { id: string };
+      
+      // Add additional validation for ID
+      if (!id || id === 'undefined') {
+        console.error('Invalid blueprint ID received:', id);
+        return NextResponse.json(
+          { error: "Invalid blueprint ID" },
+          { status: 400 }
+        );
+      }
+      
       console.log('Blueprint ID:', id);
 
       // Parse request body for options (optional)
