@@ -191,7 +191,7 @@ export function BlueprintDebugWindow({
                 
                 <div className="col-span-2 mt-2">
                   <div className="text-gray-400">Title:</div>
-                  <div>{String(blueprintData?.title || 'Not available')}</div>
+                  <div>{String(blueprintData?.title || blueprintData?.blueprint_title || 'Not available')}</div>
                 </div>
                 
                 <div className="col-span-2 mt-2">

@@ -564,6 +564,50 @@ export function CreateBlueprintModal({
         
         // Define the processLoadedBlueprint function, now with the BlueprintData type available
         const processLoadedBlueprint = (data: BlueprintData) => {
+          // Clean up responses to avoid undefined/null entries
+          if (data.content?.responses) {
+            // Filter out any null/undefined values
+            const cleanedResponses: Record<string, string> = {};
+            for (const [key, value] of Object.entries(data.content.responses)) {
+              if (value) {
+                cleanedResponses[key] = value;
+              }
+            }
+            
+            setResponses(cleanedResponses);
+          }
+          
+          if (data.content?.questions) {
+            setQuestions(data.content.questions);
+            
+            // Initialize question status based on existing responses
+            const initialStatus = data.content.questions.reduce((acc: QuestionStatusMap, q: { id: number }) => {
+              acc[q.id] = data.content?.responses?.[q.id] ? "complete" : "pending";
+              return acc;
+            }, {});
+            
+            setQuestionStatus(initialStatus);
+          }
+          
+          if (data.search_query) {
+            console.log("Loading existing search query from database:", data.search_query);
+            // Set both state variables at once
+            setEditableSearchQuery(data.search_query);
+            
+            // Create a complete finalData object with all available information
+            const finalDataObj = {
+              title: data.title || 'Untitled Blueprint',
+              search_query: data.search_query,
+              description: data.description || data.details || '',
+              skill_level: data.skill_level || 'beginner',
+              estimated_time: data.estimated_time || '1-2 hours',
+              prerequisites: data.prerequisites || []
+            };
+            
+            setFinalData(finalDataObj);
+            console.log("FinalData has been set with existing search_query:", finalDataObj);
+          }
+          
           setTitle(data.title || "");
           setPrompt(data.prompt || "");
           
@@ -581,10 +625,18 @@ export function CreateBlueprintModal({
           // This implements the requirement to go to the second slide for existing blueprints
           console.log("Navigating to conversation step for existing blueprint");
           
-          // Use a small timeout to ensure this happens after all state is set
-          setTimeout(() => {
-            setCurrentStep('conversation');
-          }, 50);
+          // If there's a search query and review was requested via URL hash, go directly to review
+          if (data.search_query && window.location.hash === '#review') {
+            console.log("Found search query and review was requested, navigating directly to review tab");
+            setTimeout(() => {
+              setCurrentStep('review');
+            }, 50);
+          } else {
+            // Otherwise go to conversation step
+            setTimeout(() => {
+              setCurrentStep('conversation');
+            }, 50);
+          }
           
           // Log the origin information to help with debugging
           console.log("Loaded blueprint details:", {
@@ -603,25 +655,10 @@ export function CreateBlueprintModal({
             description: "Continuing from where you left off"
           });
           
-          // If there's a search_query, set the final data
+          // If there's a search_query, set the final data and editable search query
           if (data.search_query) {
-            setFinalData({
-              title: data.title || "",
-              search_query: data.search_query,
-              description: data.description || data.details || "",
-              skill_level: data.skill_level,
-              estimated_time: data.estimated_time,
-              prerequisites: data.prerequisites || []
-            });
-            
-            // We'll delay this navigation to ensure we go to the conversation step first
-            // then only move to review after a brief delay
-            setTimeout(() => {
-              // Only navigate to review if we're already on the conversation step
-              if (currentStep === 'conversation') {
-                setCurrentStep('review');
-              }
-            }, 300);
+            console.log("Found existing search query during blueprint load, no need to regenerate");
+            // The finalData and editableSearchQuery are already set above, no need to set again
           }
           
           // For temporary blueprints with questions, go to the conversation step
@@ -673,6 +710,12 @@ export function CreateBlueprintModal({
                 }
               }
             }
+          }
+          
+          // Add this code to process the search_query
+          if (data.search_query) {
+            setEditableSearchQuery(data.search_query);
+            // The setFinalData call was moved to the block above with proper type handling
           }
         };
         
@@ -1374,7 +1417,7 @@ export function CreateBlueprintModal({
       // Construct the blueprint data, only including search_query if defined
       const blueprintData = {
         title: finalData.title,
-        ...(finalData.search_query ? { search_query: finalData.search_query } : {}), // Only include if defined
+        ...(editableSearchQuery ? { search_query: editableSearchQuery } : {}), // Only include if defined and use editable version
         details: finalData.description || description, // Use local description state as fallback
         prompt,
         content,
@@ -1588,14 +1631,33 @@ export function CreateBlueprintModal({
 
   // Generate the final blueprint data based on all question responses
   /**
-   * Commenting out the generateFinalBlueprint function to prevent automatic finalization
-   * as per the debugging process requirements - we need to pass through all three stages
-   * before attempting to finalize the blueprint.
+   * Uncommented generateFinalBlueprint function to enable the finalize API call.
+   * This function is responsible for sending user data to the reasoning agent to
+   * generate a proper search query for the research agent.
    */
-  /*
   const generateFinalBlueprint = async () => {
     if (!tempBlueprintId) {
       throw new Error("No temporary blueprint ID available");
+    }
+    
+    // Skip API call if we already have a search query in finalData
+    if (finalData && finalData.search_query) {
+      console.log("Using existing search query, skipping finalization API call:", finalData.search_query);
+      
+      // Make sure the editable search query is set
+      if (!editableSearchQuery) {
+        setEditableSearchQuery(finalData.search_query);
+      }
+      
+      // Double check we're not accidentally clearing the existing search query
+      if (editableSearchQuery && editableSearchQuery !== finalData.search_query) {
+        console.log("Maintaining user's edited search query instead of the one in finalData");
+      }
+      
+      // Move to the review step directly
+      setCurrentStep('review');
+      setIsLoading(false); // Make sure loading state is cleared
+      return;
     }
     
     setIsLoading(true);
@@ -1608,12 +1670,14 @@ export function CreateBlueprintModal({
         blueprint_id: tempBlueprintId,
         prompt,
         description: description, // Include current description if available
-        responses: { ...responses } // Use all collected responses
+        responses: { ...responses }, // Use all collected responses
+        user_skill_level: userData?.skill_level || userData?.user_skill_level, // Include user skill level if available
+        learning_objective: userData?.learning_objectives || userData?.user_learning_goals // Include learning objective if available
       };
       
       // Call the API to generate the final blueprint
       // This endpoint should use all responses to generate an improved search_query for research
-      console.log("Calling finalize API to generate the refined search_query and other blueprint details");
+      console.log("Calling finalize API to generate the refined search_query and other blueprint details", generateData);
       console.log("Current description before finalize:", description);
       const response = await fetch('/api/blueprints/reason/finalize', {
         method: 'POST',
@@ -1637,14 +1701,61 @@ export function CreateBlueprintModal({
       // Update the final data state
       // data.search_query should be generated by the API based on the user's responses
       // This will be passed to the research agent (Perplexity) when the blueprint is created
+      const finalTitle = data.title || title;
+      console.log("Setting finalData with title:", finalTitle);
       setFinalData({
-        title: data.title || title,
+        title: finalTitle,
         search_query: data.search_query, // Only use the API-generated search_query, no fallback
         description: data.description || description,
         skill_level: data.skill_level || 'beginner',
         estimated_time: data.estimated_time || '1-2 hours',
         prerequisites: data.prerequisites || []
       });
+      
+      // Also update the editable search query
+      setEditableSearchQuery(data.search_query);
+      
+      // Update debug information with the generated search query
+      // First, get the current debug data
+      let currentDebugInfo: {
+        agents?: {
+          reasoning_agent?: {
+            outputs?: Record<string, unknown>;
+            status?: string;
+          };
+        };
+        status?: string;
+        [key: string]: unknown;
+      } = {};
+      try {
+        if (debugResults) {
+          currentDebugInfo = JSON.parse(debugResults);
+        }
+      } catch (e) {
+        console.error("Error parsing debug results:", e);
+        currentDebugInfo = {}; // Reset if parsing fails
+      }
+      
+      // Update the debug data with the search query and mark as passed
+      const updatedDebugInfo = {
+        ...currentDebugInfo,
+        agents: {
+          ...(currentDebugInfo.agents || {}),
+          reasoning_agent: {
+            ...(currentDebugInfo.agents?.reasoning_agent || {}),
+            outputs: {
+              ...(currentDebugInfo.agents?.reasoning_agent?.outputs || {}),
+              search_query: data.search_query
+            },
+            status: 'passed' // Mark reasoning agent as passed
+          }
+        },
+        // Update the overall status as well
+        status: 'passed'
+      };
+      
+      // Set the updated debug results
+      setDebugResults(JSON.stringify(updatedDebugInfo, null, 2));
       
       console.log("Final blueprint data generated:", data);
       
@@ -1660,33 +1771,48 @@ export function CreateBlueprintModal({
       toast.error("Failed to generate final blueprint", {
         description: error instanceof Error ? error.message : "Unknown error occurred"
       });
+      
+      // Update debug information to show failure
+      let currentDebugInfo: {
+        agents?: {
+          reasoning_agent?: {
+            outputs?: Record<string, unknown>;
+            status?: string;
+          };
+        };
+        status?: string;
+        [key: string]: unknown;
+      } = {};
+      try {
+        if (debugResults) {
+          currentDebugInfo = JSON.parse(debugResults);
+        }
+      } catch (e) {
+        console.error("Error parsing debug results:", e);
+        currentDebugInfo = {}; // Reset if parsing fails
+      }
+      
+      // Update the debug data to mark reasoning as failed
+      const updatedDebugInfo = {
+        ...currentDebugInfo,
+        agents: {
+          ...(currentDebugInfo.agents || {}),
+          reasoning_agent: {
+            ...(currentDebugInfo.agents?.reasoning_agent || {}),
+            status: 'failed' // Mark reasoning agent as failed
+          }
+        },
+        // Update the overall status as well
+        status: 'failed'
+      };
+      
+      // Set the updated debug results
+      setDebugResults(JSON.stringify(updatedDebugInfo, null, 2));
+      
       return null;
     } finally {
       setIsLoading(false);
     }
-  };
-  */
-  
-  // A placeholder function to replace the commented out version
-  const generateFinalBlueprint = async () => {
-    toast.info("Blueprint finalization is temporarily disabled during debug mode", {
-      description: "Complete all three stages (Blueprint, Reasoning, Research) before finalizing"
-    });
-    
-    // Even though we're not finalizing, set finalData with reasonable defaults
-    // to ensure the blueprint creation validation doesn't fail
-    if (!finalData) {
-      setFinalData({
-        title: title || "My Blueprint",
-        search_query: `Information about: ${prompt.slice(0, 100)}${prompt.length > 100 ? '...' : ''}`,
-        description: description || "A blueprint created from user input",
-        skill_level: 'beginner',
-        estimated_time: '1-2 hours',
-        prerequisites: []
-      });
-    }
-    
-    return { prompt, content: { questions, responses } };
   };
 
   // Handle submission of the current question and optionally move to the next one
@@ -1831,11 +1957,22 @@ export function CreateBlueprintModal({
         setIsLoading(true);
         
         try {
-          // Generate the final blueprint data based on responses
-          await generateFinalBlueprint();
-          
-          // Move to review step
-          setCurrentStep('review');
+          // Check if we already have a search query, no need to regenerate
+          if (finalData && finalData.search_query) {
+            console.log("Using existing search query for review step:", finalData.search_query);
+            // Make sure editableSearchQuery is in sync with finalData
+            if (!editableSearchQuery) {
+              setEditableSearchQuery(finalData.search_query);
+            }
+            // Move to review step
+            setCurrentStep('review');
+          } else {
+            // Generate the final blueprint data based on responses
+            await generateFinalBlueprint();
+            
+            // Move to review step
+            setCurrentStep('review');
+          }
         } catch (error) {
           console.error("Error generating final blueprint:", error);
           toast.error("Failed to generate final blueprint", {
@@ -2021,6 +2158,8 @@ export function CreateBlueprintModal({
           
           // Store the data for later use
           userData = debugData.raw_user_data;
+          // Update the state variable
+          setUserData(debugData.raw_user_data);
           
           // Check if we have the skill level in either field
           const skillLevel = userData.user_skill_level || userData.skill_level;
@@ -2092,6 +2231,8 @@ export function CreateBlueprintModal({
               skill_level: userData.skill_level,
               learning_objectives: userData.learning_objectives
             });
+            // Update the state variable
+            setUserData(userData);
             
             // Log all fields to see what's available
             console.log(`[DEBUG] All available fields in profile data:`, Object.keys(userData));
@@ -2132,15 +2273,15 @@ export function CreateBlueprintModal({
       try {
         console.log(`[DEBUG] Starting blueprint debugging for ID: ${tempBlueprintId}`);
         const response = await fetch(`/api/blueprints/${tempBlueprintId}?t=${timestamp}`, {
-          method: 'GET',
-          credentials: 'include',
-          headers: {
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
-            'Pragma': 'no-cache',
-            'X-Debug-Client': 'create-blueprint-modal'
-          }
-        });
-        
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'X-Debug-Client': 'create-blueprint-modal'
+        }
+      });
+      
         if (response.ok) {
           blueprintData = await response.json();
           console.log(`[DEBUG] Successfully fetched blueprint data for ID ${tempBlueprintId}:`, blueprintData);
@@ -2150,7 +2291,7 @@ export function CreateBlueprintModal({
             searchQueryAnalysis = analyzeSearchQuery(blueprintData.search_query);
             console.log(`[DEBUG] Analyzed search query:`, searchQueryAnalysis);
           }
-        } else {
+      } else {
           const errorText = await response.text();
           console.error(`[DEBUG] Failed to fetch blueprint: ${response.status} ${response.statusText}`, errorText);
           blueprintData = { 
@@ -2220,8 +2361,9 @@ export function CreateBlueprintModal({
       const debugInfo = {
         id: tempBlueprintId,
         blueprint_id: blueprintData?.id || tempBlueprintId,
-        blueprint_title: blueprintData?.title || "Untitled Blueprint",
-        prompt: blueprintData?.prompt || "No prompt available",
+        title: blueprintData?.title || title || "Untitled Blueprint", // Use the state title as fallback
+        blueprint_title: blueprintData?.title || title || "Untitled Blueprint", // Keep for backwards compatibility
+        prompt: blueprintData?.prompt || prompt || "No prompt available", // Use state prompt as fallback
         questions: questionsData?.questions || [],
         responses: questionsData?.responses || {},
         skill_level: blueprintData?.skill_level || userData?.skill_level || userData?.user_skill_level || "Not specified",
@@ -2973,11 +3115,11 @@ export function CreateBlueprintModal({
         }));
         
         // Cancel any pending auto-save timeout
-        if (autoSaveTimeoutRef.current) {
-          clearTimeout(autoSaveTimeoutRef.current);
-          autoSaveTimeoutRef.current = null;
-        }
-        
+          if (autoSaveTimeoutRef.current) {
+            clearTimeout(autoSaveTimeoutRef.current);
+            autoSaveTimeoutRef.current = null;
+          }
+          
         // Immediately save to database - don't wait for debounce
         if (tempBlueprintId) {
           console.log("Saving generated answer to database");
@@ -3021,6 +3163,122 @@ export function CreateBlueprintModal({
     }
   }, [isDebugOpen]);
 
+  // Add userData as a state variable at the top of the component where the other state variables are defined
+  const [userData, setUserData] = useState<any>(null);
+
+  // Add a useEffect hook to fetch user profile data on component mount
+  useEffect(() => {
+    // Function to fetch user profile data
+    const fetchUserProfile = async () => {
+      try {
+        console.log(`Fetching user profile data for blueprint creation...`);
+        const response = await fetch('/api/profile', {
+          method: 'GET',
+          credentials: 'include',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache'
+          }
+        });
+        
+        if (response.ok) {
+          const userProfileData = await response.json();
+          console.log(`Successfully fetched user profile data for blueprint creation`);
+          
+          // Set the userData state
+          setUserData(userProfileData);
+        } else {
+          console.warn(`Failed to fetch user profile. Status: ${response.status}`);
+        }
+      } catch (error) {
+        console.error(`Error fetching user profile:`, error);
+      }
+    };
+    
+    // Call the function to fetch user profile
+    fetchUserProfile();
+  }, []); // Empty dependency array means this runs once on mount
+
+  // Add this after other state variables around line 301
+  const [editableSearchQuery, setEditableSearchQuery] = useState<string>("");
+
+  // Add this useEffect after other useEffects
+  useEffect(() => {
+    if (finalData?.search_query) {
+      setEditableSearchQuery(finalData.search_query);
+    }
+  }, [finalData]);
+
+  // Add this handler function near other handlers
+  const handleSearchQueryChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setEditableSearchQuery(e.target.value);
+    
+    // Also update the finalData
+    if (finalData) {
+      setFinalData({
+        ...finalData,
+        search_query: e.target.value
+      });
+    }
+  };
+
+  // Add a function to handle direct tab navigation
+  const handleTabClick = (step: 'prompt' | 'conversation' | 'review') => {
+    // Don't allow skipping steps if prerequisites aren't met
+    if (step === 'conversation' && !prompt) {
+      toast.error("Please enter a prompt first", {
+        description: "You need to define your blueprint before proceeding"
+      });
+      return;
+    }
+
+    if (step === 'review') {
+      // If we have a search query already (from an existing blueprint), allow going to review
+      if (editableSearchQuery || (finalData && finalData.search_query)) {
+        // Make sure editableSearchQuery is in sync with finalData
+        if (finalData && finalData.search_query && !editableSearchQuery) {
+          console.log("Using existing search query from finalData:", finalData.search_query);
+          setEditableSearchQuery(finalData.search_query);
+        }
+        console.log("Navigating directly to review tab with existing search query:", editableSearchQuery || (finalData?.search_query));
+        setCurrentStep('review');
+        return;
+      }
+      
+      // If we don't have questions/responses yet, don't allow going to review
+      if (!questions || questions.length === 0 || 
+          !responses || Object.keys(responses).length === 0) {
+        toast.error("Please answer the questions first", {
+          description: "You need to complete the questionnaire before reviewing"
+        });
+        return;
+      }
+      
+      // If we have questions/responses but no finalData or no search query, generate it
+      if (!finalData || !finalData.search_query) {
+        toast.info("Generating search query...", {
+          description: "Please wait while we prepare your review"
+        });
+        generateFinalBlueprint();
+        return;
+      }
+      
+      // Otherwise, allow going to review
+      setCurrentStep('review');
+    } else {
+      // For other steps, just navigate directly
+      setCurrentStep(step);
+    }
+  };
+
+  // Add this useEffect after other useEffects
+  useEffect(() => {
+    if (finalData?.search_query && finalData.search_query !== editableSearchQuery) {
+      console.log("Syncing editableSearchQuery with finalData.search_query:", finalData.search_query);
+      setEditableSearchQuery(finalData.search_query);
+    }
+  }, [finalData, editableSearchQuery]);
+
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       {triggerButton && <DialogTrigger asChild>{triggerButton}</DialogTrigger>}
@@ -3053,19 +3311,14 @@ export function CreateBlueprintModal({
               
               {/* Step Indicators */}
               <div className="flex items-center gap-6 text-sm">
-                <div
+                <div 
                   className={cn(
                     "flex items-center gap-2 cursor-pointer",
                     currentStep === "prompt"
                       ? "text-primary font-medium"
                       : "text-muted-foreground"
                   )}
-                  onClick={() => {
-                    // Only allow navigation to steps we've already reached
-                    if (prompt.trim()) {
-                      setCurrentStep("prompt");
-                    }
-                  }}
+                  onClick={() => handleTabClick('prompt')}
                 >
                   <div
                     className={cn(
@@ -3079,21 +3332,15 @@ export function CreateBlueprintModal({
                   </div>
                   <span>Define Goal</span>
                 </div>
-
-                <div
+                
+                <div 
                   className={cn(
-                    "flex items-center gap-2",
+                    "flex items-center gap-2 cursor-pointer",
                     currentStep === "conversation"
                       ? "text-primary font-medium"
-                      : "text-muted-foreground",
-                    !questions.length && "opacity-50 cursor-not-allowed" // Disable if no questions yet
+                      : "text-muted-foreground"
                   )}
-                  onClick={() => {
-                    // Only allow navigation if we have questions
-                    if (questions.length > 0) {
-                      setCurrentStep("conversation");
-                    }
-                  }}
+                  onClick={() => handleTabClick('conversation')}
                 >
                   <div
                     className={cn(
@@ -3107,35 +3354,28 @@ export function CreateBlueprintModal({
                   </div>
                   <span>Clarify Details</span>
                 </div>
-
-                {finalData && (
+                
+                <div 
+                  className={cn(
+                    "flex items-center gap-2 cursor-pointer",
+                    currentStep === "review"
+                      ? "text-primary font-medium"
+                      : "text-muted-foreground"
+                  )}
+                  onClick={() => handleTabClick('review')}
+                >
                   <div
                     className={cn(
-                      "flex items-center gap-2 cursor-pointer",
+                      "w-5 h-5 flex items-center justify-center rounded-full text-xs",
                       currentStep === "review"
-                        ? "text-primary font-medium"
-                        : "text-muted-foreground"
+                        ? "border-primary border text-primary font-medium"
+                        : "border border-muted-foreground/50 text-muted-foreground"
                     )}
-                    onClick={() => {
-                      // Only allow navigation if we have finalData
-                      if (finalData) {
-                        setCurrentStep("review");
-                      }
-                    }}
                   >
-                    <div
-                      className={cn(
-                        "w-5 h-5 flex items-center justify-center rounded-full text-xs",
-                        currentStep === "review"
-                          ? "border-primary border text-primary font-medium"
-                          : "border border-muted-foreground/50 text-muted-foreground"
-                      )}
-                    >
-                      3
-                    </div>
-                    <span>Review</span>
+                    3
                   </div>
-                )}
+                  <span>Review</span>
+                </div>
               </div>
             </div>
           </DialogHeader>
@@ -3225,7 +3465,7 @@ export function CreateBlueprintModal({
             )}
             
             {currentStep === 'conversation' && (
-              <div className="grid grid-cols-2 gap-8 p-8 h-full">
+              <div className="grid grid-cols-2 gap-8 pr-0 pl-8 py-8 h-full">
                 {/* Left column with response textarea */}
                 <div className="flex flex-col h-full">
                   <h3 className="text-lg font-semibold mb-3">
@@ -3279,7 +3519,7 @@ export function CreateBlueprintModal({
                 </div>
                 
                 {/* Right column with question cards */}
-                <div className="flex flex-col h-full">
+                <div className="flex flex-col h-full pr-8">
                   <h3 className="text-lg font-semibold mb-3">Questions</h3>
                   
                   {isLoading && questions.length === 0 ? (
@@ -3290,7 +3530,7 @@ export function CreateBlueprintModal({
                       </div>
                     </div>
                   ) : (
-                    <ScrollContainer className="pr-4">
+                    <ScrollContainer className="">
                       {questions.map((question, index) => (
                         <div 
                           key={question.id}
@@ -3336,127 +3576,30 @@ export function CreateBlueprintModal({
               </div>
             )}
             
-            {/* Review UI - simplified to show only JSON data */}
+            {/* Review UI - simplified and focused on the search query */}
             {currentStep === 'review' && finalData && (
-              <div className="flex flex-col h-full overflow-hidden">
-                <div className="bg-slate-900 text-white font-mono flex-1 flex flex-col rounded-md overflow-hidden">
-                  <div className="sticky top-0 right-0 z-20 flex justify-between bg-slate-900/95 backdrop-blur-sm py-3 px-4 border-b border-slate-700">
-                    <h3 className="text-lg font-semibold text-white">Review Blueprint Data</h3>
-                    <div className="flex gap-2">
-                      <Button 
-                        type="button" 
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 w-8 p-0 bg-slate-800 hover:bg-slate-700 text-slate-200"
-                        onClick={() => {
-                          const blueprintData = {
-                            title: finalData.title,
-                            search_query: finalData.search_query,
-                            description: finalData.description,
-                            skill_level: finalData.skill_level,
-                            estimated_time: finalData.estimated_time,
-                            prerequisites: finalData.prerequisites,
-                            content: {
-                              questions: questions.map(q => ({
-                                id: q.id,
-                                title: q.title,
-                                content: q.content,
-                                response: responses[q.id] || ""
-                              })),
-                              responses
-                            },
-                            prompt,
-                            is_temporary: false,
-                            creation_info: {
-                              temporary_id: tempBlueprintId,
-                              created_id: createdBlueprintId,
-                            }
-                          };
-                          navigator.clipboard.writeText(JSON.stringify(blueprintData, null, 2));
-                          toast.success("Copied to clipboard!");
-                        }}
-                      >
-                        <Copy className="h-4 w-4" />
-                      </Button>
-                      {process.env.NODE_ENV === 'development' && (
-                        <Button 
-                          type="button" 
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200"
-                          onClick={(e) => {
-                            // Prevent any default behavior
-                            e.preventDefault();
-                            e.stopPropagation();
-                            
-                            // Set debugIsOpen to true
-                            setIsDebugOpen(!isDebugOpen);
-                            
-                            // Also add sample API debug data for demonstration
-                            if (!isDebugOpen) {
-                              // When opening, populate some API debug data
-                              const sampleApiDebugData = {
-                                openaiRequest: {
-                                  endpoint: '/api/blueprints/reason/finalize',
-                                  method: 'POST',
-                                  data: {
-                                    prompt: prompt,
-                                    description: description,
-                                    responses: responses
-                                  }
-                                },
-                                openaiResponse: {
-                                  title: "Competitive Marketing Analysis AI",
-                                  search_query: "Create an AI system to analyze competitors' marketing materials",
-                                  description: "Detailed description would be here"
-                                }
-                              };
-                              
-                              // Update API debug data
-                              setApiDebugData(sampleApiDebugData);
-                            }
-                            
-                            // Trigger debug blueprint
-                            debugBlueprint();
-                          }}
-                          disabled={isLoading || !tempBlueprintId}
-                        >
-                          Debug <span className="sr-only">Debug</span>
-                        </Button>
-                      )}
+              <div className="p-8 h-full overflow-auto">
+                <div className="flex-1 h-full flex flex-col justify-center">
+                  {/* Implementation details section */}
+                  <div className="rounded-lg p-8 border border-slate-700/50">
+                    <div className="mb-6">
+                      <div className="flex justify-between items-center mb-3">
+                        <h3 className="text-2xl font-semibold text-white">Confirm Scope</h3>
+                        <span className="text-xs px-2.5 py-1.5 rounded-full bg-slate-700/40 text-slate-300">AI Generated</span>
+                      </div>
+                      <p className="text-sm text-slate-400 mb-5 leading-relaxed">
+                        These details will be used to create your blueprint. You can edit the final search query to refine the implementation.
+                      </p>
                     </div>
-                  </div>
-                  
-                  <div className="overflow-auto p-4 flex-1 bg-slate-900 text-xs">
-                    <pre className="whitespace-pre-wrap">
-                      {JSON.stringify(
-                        {
-                          title: finalData.title,
-                          search_query: finalData.search_query,
-                          description: finalData.description,
-                          skill_level: finalData.skill_level,
-                          estimated_time: finalData.estimated_time,
-                          prerequisites: finalData.prerequisites,
-                          content: {
-                            questions: questions.map(q => ({
-                              id: q.id,
-                              title: q.title,
-                              content: q.content,
-                              response: responses[q.id] || ""
-                            })),
-                            responses
-                          },
-                          prompt,
-                          is_temporary: false,
-                          creation_info: {
-                            temporary_id: tempBlueprintId,
-                            created_id: createdBlueprintId,
-                          }
-                        }, 
-                        null, 
-                        2
-                      )}
-                    </pre>
+                    
+                    <div className="rounded-md border border-slate-700/50 focus-within:ring-1 focus-within:ring-slate-500/40">
+                      <Textarea 
+                        value={editableSearchQuery}
+                        onChange={handleSearchQueryChange}
+                        className="min-h-[260px] p-4 text-base leading-relaxed resize-none bg-transparent border-none focus-visible:ring-0 focus-visible:outline-none text-slate-200"
+                        placeholder="Edit search query to customize your blueprint..."
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -3629,23 +3772,23 @@ export function CreateBlueprintModal({
                           </div>
                           
                           <div className="overflow-auto flex-grow mb-4">
-                            <div className="mb-4">
-                              <span className="text-blue-300">Status:</span> {
-                                deleteDebugData.status === 'request_in_progress' 
-                                  ? 'REQUEST IN PROGRESS' 
-                                  : (deleteDebugData.success 
-                                    ? 'SUCCESS (VERIFIED DELETED)' 
-                                    : deleteDebugData.api_response_indicates_success 
-                                      ? 'FAILURE (API REPORTED SUCCESS BUT BLUEPRINT STILL EXISTS)'
-                                      : 'FAILED')
-                              }
-                            </div>
-                            <div className="mb-4">
-                              <span className="text-blue-300">Blueprint:</span> {String(deleteDebugData?.blueprint_title || '')} ({String(deleteDebugData?.blueprint_id || '')})
-                            </div>
+                          <div className="mb-4">
+                            <span className="text-blue-300">Status:</span> {
+                              deleteDebugData.status === 'request_in_progress' 
+                                ? 'REQUEST IN PROGRESS' 
+                                : (deleteDebugData.success 
+                                  ? 'SUCCESS (VERIFIED DELETED)' 
+                                  : deleteDebugData.api_response_indicates_success 
+                                    ? 'FAILURE (API REPORTED SUCCESS BUT BLUEPRINT STILL EXISTS)'
+                                    : 'FAILED')
+                            }
+                          </div>
+                          <div className="mb-4">
+                            <span className="text-blue-300">Blueprint:</span> {String(deleteDebugData?.blueprint_title || '')} ({String(deleteDebugData?.blueprint_id || '')})
+                          </div>
                             <pre className="whitespace-pre-wrap">
-                              {JSON.stringify(deleteDebugData, null, 2)}
-                            </pre>
+                            {JSON.stringify(deleteDebugData, null, 2)}
+                          </pre>
                           </div>
                           
                           <div className="mt-auto pt-4 flex gap-4 border-t border-gray-800">
