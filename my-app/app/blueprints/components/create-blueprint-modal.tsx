@@ -3605,12 +3605,22 @@ export function CreateBlueprintModal({
         }),
       });
       
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || `API error: ${response.status}`);
+      // Get the raw response text first for debugging
+      const responseText = await response.text();
+      console.log("Raw API response text:", responseText);
+      
+      let data;
+      try {
+        // Then parse it as JSON
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error("Error parsing API response:", parseError);
+        throw new Error(`API returned invalid JSON: ${responseText.substring(0, 100)}...`);
       }
       
-      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || `API error: ${response.status}`);
+      }
       
       // Open debug window and show the response
       setIsDebugOpen(true);
@@ -3644,6 +3654,21 @@ export function CreateBlueprintModal({
       });
     } catch (error) {
       console.error("Research API test error:", error);
+      
+      // Create debug info with error details
+      const errorDebugInfo = {
+        timestamp: new Date().toISOString(),
+        blueprint_id: tempBlueprintId,
+        blueprint_title: title,
+        status: "failed",
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      };
+      
+      // Show error in debug window
+      setIsDebugOpen(true);
+      setDebugResults(JSON.stringify(errorDebugInfo, null, 2));
+      
       toast.error("Research API test failed", {
         description: error instanceof Error ? error.message : String(error)
       });

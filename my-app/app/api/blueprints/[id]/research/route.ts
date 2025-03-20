@@ -75,6 +75,14 @@ export const POST = createRouteHandler<ErrorResponse | SuccessResponse>(
         options,
       });
       console.log('Received research data with', researchData.steps.length, 'steps and', researchData.sources.length, 'sources');
+      
+      // Log sources for debugging
+      if (researchData.sources.length > 0) {
+        console.log('Sources found:', researchData.sources.length);
+        console.log('First few sources:', JSON.stringify(researchData.sources.slice(0, 2), null, 2));
+      } else {
+        console.log('WARNING: No sources were returned from Perplexity API. Check if model is configured to return sources or if prompt needs adjustment.');
+      }
 
       // Extract sources and usage metrics to store separately
       const { sources, usage_metrics, ...stepData } = researchData;

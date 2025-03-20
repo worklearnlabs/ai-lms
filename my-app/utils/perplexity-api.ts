@@ -82,7 +82,9 @@ export async function generateResearch(
     
     // Use the Vercel AI SDK to generate text with Perplexity
     console.log('Calling Perplexity API with model: sonar-pro-online');
-    
+
+    // For Perplexity, we rely on the enhanced prompt to instruct the model to include sources
+    // We've updated the prompt to specifically request sources for tools and technologies
     const result = await generateText({
       model: perplexity("sonar-pro-online"),
       prompt,
@@ -95,10 +97,38 @@ export async function generateResearch(
     console.log('Metadata:', JSON.stringify(result.metadata, null, 2));
 
     // Parse the JSON response from the generated text
-    const researchData = JSON.parse(result.text) as Omit<
-      PerplexityResearchResponse,
-      "sources" | "usage_metrics"
-    >;
+    // Enhanced parsing to handle text responses with preamble before JSON
+    let researchData;
+    try {
+      // First try direct parsing in case it's clean JSON
+      researchData = JSON.parse(result.text);
+    } catch (parseError) {
+      console.log('Direct JSON parsing failed, attempting to extract JSON from text response');
+      console.log('Parse error details:', parseError instanceof Error ? parseError.message : String(parseError));
+      
+      // Try to find the start of a JSON object in the text
+      const jsonStart = result.text.indexOf('{');
+      if (jsonStart !== -1) {
+        try {
+          // Extract text from the first '{' to the end and try to parse it
+          const jsonText = result.text.substring(jsonStart);
+          researchData = JSON.parse(jsonText);
+          console.log('Successfully extracted JSON from text response');
+        } catch (extractError) {
+          console.error('Failed to extract JSON from response text:', extractError);
+          throw new Error('Response contained invalid JSON format');
+        }
+      } else {
+        console.error('No JSON object found in response text');
+        throw new Error('No JSON object found in API response');
+      }
+    }
+
+    // Validate that we have the expected structure
+    if (!researchData || !researchData.complexity || !researchData.steps || !Array.isArray(researchData.steps)) {
+      console.error('Invalid research data structure:', researchData);
+      throw new Error('API returned invalid research data structure');
+    }
     
     console.log('Parsed research data (first 2 steps):', 
       JSON.stringify({
@@ -140,6 +170,43 @@ export async function generateResearch(
     console.log('Sources found:', formattedSources.length);
     if (formattedSources.length > 0) {
       console.log('First source:', JSON.stringify(formattedSources[0], null, 2));
+    } else {
+      // Log full metadata for debugging when no sources found
+      console.log('No sources found in metadata. Full metadata:', JSON.stringify(result.metadata, null, 2));
+      console.log('Checking for sources in API response format...');
+      
+      // Some API responses might include sources data differently - check alternatives
+      try {
+        // Try to extract sources from other locations in the response
+        const responseObj = JSON.parse(result.text);
+        
+        // Option 1: Sources might be directly in the response object
+        if (responseObj.sources && Array.isArray(responseObj.sources) && responseObj.sources.length > 0) {
+          console.log('Found sources in response object, using these instead.');
+          const altSources = responseObj.sources.map((src: {
+            title?: string;
+            name?: string;
+            url?: string;
+            snippet?: string;
+            description?: string;
+          }) => ({
+            title: src.title || src.name || "Source",
+            url: src.url || "",
+            snippet: src.snippet || src.description || ""
+          }));
+          
+          if (altSources.length > 0) {
+            console.log(`Found ${altSources.length} alternative sources`);
+            return {
+              ...researchData,
+              sources: altSources,
+              usage_metrics: usageMetrics,
+            } as PerplexityResearchResponse;
+          }
+        }
+      } catch (parseError) {
+        console.log('No alternative sources found in response:', parseError instanceof Error ? parseError.message : 'Unknown error');
+      }
     }
 
     // Combine everything into our final response format
@@ -162,6 +229,9 @@ export async function generateResearch(
 function createPrompt(request: PerplexityResearchRequest): string {
   return `
     You are a step-by-step implementation planner.
+    
+    IMPORTANT: You MUST respond with ONLY a JSON object. Do not include any introduction, explanation, or concluding text before or after the JSON.
+    
     Create a detailed implementation plan for: "${request.query}"
     
     ${request.context ? `Context: ${request.context}` : ''}
@@ -172,6 +242,14 @@ function createPrompt(request: PerplexityResearchRequest): string {
     3. List specific tools/technologies needed
     4. Break down into bullet-point instructions
     5. Include any code snippets or examples if needed
+    
+    IMPORTANT: For each tool or technology you mention in the steps, you MUST search for and include relevant sources such as:
+    - Official documentation pages
+    - Tutorial websites
+    - GitHub repositories
+    - API reference pages
+    
+    Your search should find authoritative sources for each technology. For example, if you mention "React", include a source for React's official documentation.
     
     Return a structured JSON with sequential steps:
     {
@@ -196,5 +274,8 @@ function createPrompt(request: PerplexityResearchRequest): string {
     - The step's estimated_time should include the time for all subtasks plus any additional work
     - Steps should be in logical sequence from first to last
     - DO NOT include sources in your JSON - they will be added separately
+    - You MUST perform web searches to find relevant sources for tools and technologies
+    
+    FINAL REMINDER: Your entire response must be ONLY valid JSON - no text before or after the JSON object. The first character should be '{' and the last should be '}'.
   `;
 } 
