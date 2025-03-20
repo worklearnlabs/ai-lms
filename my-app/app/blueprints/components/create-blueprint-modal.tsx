@@ -261,6 +261,9 @@ export function CreateBlueprintModal({
   temporaryBlueprintId,
   onBlueprintCreated
 }: CreateBlueprintModalProps) {
+  // Get router for navigation
+  const router = useRouter();
+
   // Declare state variables
   const [internalIsOpen, setInternalIsOpen] = useState(false);
   const [currentStep, setCurrentStep] = useState<'prompt' | 'conversation' | 'reason' | 'complete' | 'review'>('prompt');
@@ -1439,7 +1442,7 @@ export function CreateBlueprintModal({
           return complexityMap[skillLevel] || 'low'; // Default to 'low' if mapping fails
         })(),
         estimated_time: finalData.estimated_time || '30 minutes', // Provide a default
-        is_temporary: false, // Set to false to make it a permanent blueprint
+        is_temporary: true, // Keep as true until we successfully generate research
       };
       
       // Log the blueprint data with both fields for debugging
@@ -1532,7 +1535,7 @@ export function CreateBlueprintModal({
         // Parse the successful response
         const data = await response.json();
         
-        console.log('Blueprint successfully created/updated:', data);
+        console.log('Blueprint successfully updated:', data);
         
         // For debugging purposes, show the response data
         setIsDebugOpen(true);
@@ -1542,94 +1545,122 @@ export function CreateBlueprintModal({
           setCreatedBlueprintId(data.id);
         }
         
-        toast.success("Blueprint created successfully", { id: "create-blueprint" });
+        // Update toast message
+        toast.loading("Generating research data...", { id: "create-blueprint" });
         
-        // First close the modal - must happen before callback to prevent race conditions
-        setIsOpen(false);
-        
-        // Add a small delay before notifying the parent to ensure database consistency
-        setTimeout(() => {
-          // Notify parent component that a blueprint was created
-          if (onBlueprintCreated && data && data.id) {
-            console.log("Calling onBlueprintCreated with ID:", data.id);
-            onBlueprintCreated(data.id);
-          } else {
-            console.warn("onBlueprintCreated callback is not provided or data.id is missing");
-            console.log("Blueprint data:", data);
+        // Now that the blueprint is updated, generate research
+        try {
+          console.log("Generating research for blueprint:", data.id);
+          
+          // Call the research API endpoint
+          const researchResponse = await fetch(`/api/blueprints/${data.id}/research`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              complexity: blueprintData.complexity || "medium",
+              maxSteps: 10
+            }),
+          });
+          
+          // Get the response
+          const researchResult = await researchResponse.json();
+          
+          if (!researchResponse.ok) {
+            throw new Error(researchResult.error || `Research API error: ${researchResponse.status}`);
           }
           
-          // In development mode, log debugging info
-          if (process.env.NODE_ENV === 'development') {
-            console.log("DEBUGGING: Blueprint creation complete. Parent component notified after modal closed.");
+          console.log("Research generated successfully:", researchResult);
+          
+          // Now finalize the blueprint by setting is_temporary to false
+          const finalizeResponse = await fetch(endpoint, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              is_temporary: false
+            }),
+            credentials: 'include'
+          });
+          
+          if (!finalizeResponse.ok) {
+            throw new Error("Failed to finalize blueprint");
           }
-        }, 200); // Small delay to ensure database consistency
+          
+          const finalizedData = await finalizeResponse.json();
+          console.log("Blueprint finalized:", finalizedData);
+          
+          // Success message
+          toast.success("Blueprint created with research data", { id: "create-blueprint" });
+          
+          // First close the modal - must happen before callback to prevent race conditions
+          setIsOpen(false);
+          
+          // Add a small delay before notifying the parent to ensure database consistency
+          setTimeout(() => {
+            if (onBlueprintCreated) {
+              onBlueprintCreated(data.id);
+            }
+            
+            // Redirect to the blueprint page after successful creation
+            router.push(`/blueprints/${data.id}`);
+          }, 500);
+        } catch (researchError) {
+          console.error("Research generation error:", researchError);
+          
+          // We'll finalize the blueprint anyway, even if research fails
+          try {
+            const finalizeResponse = await fetch(endpoint, {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                is_temporary: false
+              }),
+              credentials: 'include'
+            });
+            
+            if (!finalizeResponse.ok) {
+              throw new Error("Failed to finalize blueprint");
+            }
+            
+            const finalizedData = await finalizeResponse.json();
+            console.log("Blueprint finalized despite research error:", finalizedData);
+          } catch (finalizeError) {
+            console.error("Failed to finalize blueprint:", finalizeError);
+          }
+          
+          toast.error("Blueprint created but research generation failed", { id: "create-blueprint" });
+          
+          // Close the modal and redirect anyway
+          setIsOpen(false);
+          
+          setTimeout(() => {
+            if (onBlueprintCreated) {
+              onBlueprintCreated(data.id);
+            }
+            
+            router.push(`/blueprints/${data.id}`);
+          }, 500);
+        }
       } catch (error) {
         console.error('Error in blueprint creation API call:', error);
-        
-        // Provide a more descriptive error message based on the error
-        let errorMessage = 'Failed to create blueprint';
-        let errorDetails = '';
-        
-        if (error instanceof Error) {
-          errorMessage = error.message;
-          errorDetails = error.stack || '';
-          
-          // Special case for common errors
-          if (errorMessage.includes('Invalid input')) {
-            errorMessage = 'Invalid blueprint data format';
-            console.error('Data that caused invalid input error:', cleanedData);
-          } else if (errorMessage.includes('Failed to fetch')) {
-            errorMessage = 'Network error - could not reach the server';
-          }
-        }
-        
-        // Set error debug data
-        setDebugResults(JSON.stringify({
-          error: true,
-          message: errorMessage,
-          details: errorDetails,
-          data_sent: cleanedData,
-          timestamp: new Date().toISOString()
-        }, null, 2));
-        
-        setIsDebugOpen(true);
-        throw new Error(errorMessage); // Re-throw with more descriptive message
+        toast.error("Failed to create blueprint", { 
+          id: "create-blueprint",
+          description: error instanceof Error ? error.message : String(error)
+        });
+      } finally {
+        setIsLoading(false);
       }
     } catch (error) {
       console.error('Error in handleCreateBlueprint:', error);
-      
-      // Add more detailed error debugging
-      let errorMessage = 'Failed to create blueprint';
-      let errorDetails = '';
-      
-      if (error instanceof Error) {
-        errorMessage = error.message;
-        errorDetails = error.stack || '';
-      } else if (typeof error === 'string') {
-        errorMessage = error;
-      } else if (error && typeof error === 'object') {
-        errorMessage = JSON.stringify(error);
-      }
-      
-      // Set debug data for the error to help with troubleshooting
-      setDebugResults(JSON.stringify({
-        error: true,
-        message: errorMessage,
-        details: errorDetails,
-        timestamp: new Date().toISOString(),
-        blueprint_info: {
-          tempBlueprintId,
-          createdBlueprintId,
-          title: finalData?.title || '',
-          has_search_query: !!finalData?.search_query,
-          question_count: questions.length,
-          response_count: Object.keys(responses).length
-        }
-      }, null, 2));
-      
-      setIsDebugOpen(true);
-      toast.error(errorMessage, { id: "create-blueprint" });
-    } finally {
+      toast.error("Failed to create blueprint", { 
+        id: "create-blueprint",
+        description: error instanceof Error ? error.message : String(error)
+      });
       setIsLoading(false);
     }
   };
@@ -4068,7 +4099,8 @@ export function CreateBlueprintModal({
               </Button>
             )}
             <Button
-              type="submit"
+              type={currentStep === 'review' ? "submit" : "button"}
+              onClick={currentStep !== 'review' ? handleSubmit : undefined}
               variant={canSubmit ? "default" : "outline"}
               disabled={isLoading || !canSubmit}
               className={cn(
@@ -4079,10 +4111,15 @@ export function CreateBlueprintModal({
               {isLoading ? (
                 <span className="flex items-center gap-1">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Creating...
+                  {currentStep === 'review' ? "Creating..." : "Processing..."}
                 </span>
-              ) : (
+              ) : currentStep === 'review' ? (
                 "Create Blueprint"
+              ) : (
+                <>
+                  <span>Next</span>
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </>
               )}
             </Button>
           </DialogFooter>

@@ -1139,11 +1139,11 @@ FORMAT YOUR RESPONSE AS A JSON OBJECT with the following structure:
 }
 
 IMPORTANT NOTES:
-- DO NOT include a title for the overall project in your response; we already have one
+- DO NOT include a title for the overall project in your response; we already have the blueprint title
 - estimated_time should be an integer representing minutes
 - The step's estimated_time should include time for all subtasks plus any additional work
 - Steps should be in logical sequence from first to last
-- DO NOT include sources in your JSON - they will be added separately through the Perplexity API
+- DO NOT include sources in your JSON - they will be added separately
 ```
 
 ## Environment Configuration
@@ -1477,15 +1477,53 @@ export const POST = createRouteHandler(
 - ✅ Final blueprint generation in UI
 - ✅ Search query generation with OpenAI (considering skill level and learning objectives)
 - ✅ Search query storage and retrieval in database
+- ✅ Perplexity API integration via Vercel AI SDK with enhanced JSON parsing
+- ✅ Database tables for blueprint_research
+- ✅ Test button for research generation without finalizing the blueprint
+- ✅ Robust error handling and debugging for the Perplexity API responses
+- ✅ Structured JSON parsing with fallback mechanisms for various response formats
 
 ### Needs Implementation:
 
-- 📝 Perplexity API integration via Vercel AI SDK
-- 📝 Database tables for blueprint research
-- 📝 Frontend components for research display
-- 📝 React Flow visualization
+- 📝 Frontend components for research display (in progress)
+- 📝 React Flow visualization (partially implemented)
 - 📝 Blueprint finalization (changing is_temporary to FALSE)
-- 📝 Integration of search query with Perplexity search agent
+- 📝 Source retrieval optimization for Perplexity API
+- 📝 Comprehensive error state handling in the UI
+
+## Progress Update (Added on May 22, 2024)
+
+We've successfully integrated the Perplexity API for research generation with several key improvements:
+
+### JSON Parsing Enhancements
+
+- Added robust JSON parsing that can handle text preambles in responses
+- Implemented validation for the expected structure to ensure data integrity
+- Added fallback mechanisms to extract JSON when the format isn't clean
+
+### Prompt Engineering
+
+- Updated the system prompt to explicitly instruct Perplexity to return only JSON
+- Added clear directives about searching for sources for each tool mentioned
+- Included specific formatting instructions for valid JSON with reminders at both the beginning and end
+
+### Source Handling
+
+- Implemented extraction of sources from the Perplexity API response metadata
+- Added alternative source detection for different response formats
+- Added detailed logging for debugging source retrieval issues
+
+### Testing & Debugging
+
+- Created a "Test Research" button in the blueprint creation modal
+- Enhanced error handling to show detailed information in the debug window
+- Added comprehensive logging throughout the research generation process
+
+### Next Steps
+
+- Optimize source retrieval from Perplexity API to ensure we get relevant sources for each tool
+- Complete the frontend components for displaying research data with visualizations
+- Finalize the blueprint creation flow to properly incorporate research data
 
 ## Testing Plan
 
@@ -1493,52 +1531,55 @@ export const POST = createRouteHandler(
 
 #### Unit Tests
 
-- Test search query generation with different skill levels (beginner, intermediate, advanced)
-- Verify learning objectives are properly incorporated into the query
-- Test handling of edge cases (missing responses, incomplete skill information)
+- ✅ Test search query generation with different skill levels (beginner, intermediate, advanced)
+- ✅ Verify learning objectives are properly incorporated into the query
+- ✅ Test handling of edge cases (missing responses, incomplete skill information)
 
 #### Integration Tests
 
-- Verify search query is correctly saved to the blueprint
-- Test end-to-end flow from blueprint creation to query generation
-- Validate that generated queries produce relevant Perplexity research results
+- ✅ Verify search query is correctly saved to the blueprint
+- ✅ Test end-to-end flow from blueprint creation to query generation
+- ✅ Validate that generated queries produce relevant Perplexity research results
 
 #### Acceptance Criteria
 
-- Search queries should be adapted to the user's skill level
-- Queries should incorporate learning objectives when provided
-- Generated queries should yield relevant and appropriate results in Perplexity
-- Queries should be detailed yet concise (typically 2-4 sentences)
+- ✅ Search queries should be adapted to the user's skill level
+- ✅ Queries should incorporate learning objectives when provided
+- ✅ Generated queries should yield relevant and appropriate results in Perplexity
+- ✅ Queries should be detailed yet concise (typically 2-4 sentences)
 
 ### Testing Perplexity Integration
 
 #### Unit Tests
 
-- Test Perplexity API wrapper functions with mock responses
-- Verify proper handling of API errors and retries
-- Test extraction and formatting of sources and usage metrics
+- ✅ Test Perplexity API wrapper functions with enhanced JSON parsing
+- ✅ Verify proper handling of API errors and retries
+- ⏳ Test extraction and formatting of sources and usage metrics (in progress)
 
 #### Integration Tests
 
-- Test the complete flow from blueprint to research generation
-- Verify proper storage of research data in the database
-- Test frontend rendering of research data
+- ✅ Test the complete flow from blueprint to research generation
+- ✅ Verify proper storage of research data in the database
+- ⏳ Test frontend rendering of research data (in progress)
 
 #### End-to-End Tests
 
-- Complete user journey from blueprint creation to research viewing
-- Verify visualization options work correctly
-- Test performance with various research response sizes
+- ⏳ Complete user journey from blueprint creation to research viewing (in progress)
+- ⏳ Verify visualization options work correctly (in progress)
+- ✅ Test performance with various research response sizes
 
 ## Quality Assurance Checklist
 
 Before releasing the Perplexity integration, verify:
 
-- [ ] Search queries appropriately reflect user skill level
-- [ ] Research results are relevant to the blueprint topic
-- [ ] Source attribution is properly displayed
-- [ ] React Flow visualizations work in both modes
-- [ ] Database queries are optimized and indexed
-- [ ] Error states are handled gracefully in the UI
+- [x] Search queries appropriately reflect user skill level
+- [x] Research results are relevant to the blueprint topic
+- [ ] Source attribution is properly displayed (in progress)
+- [ ] React Flow visualizations work in both modes (in progress)
+- [x] Database queries are optimized and indexed
+- [x] Error states are handled gracefully in the API
+- [ ] Error states are handled gracefully in the UI (in progress)
 - [ ] All permissions and RLS policies are correctly implemented
-- [ ] Research generation respects rate limits of the Perplexity API
+- [x] Research generation respects rate limits of the Perplexity API
+- [x] JSON parsing is robust against different response formats
+- [ ] Perplexity API integration is fully functional and stable

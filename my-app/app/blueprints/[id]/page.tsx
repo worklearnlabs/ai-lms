@@ -7,9 +7,6 @@ import { CheckCircle2 } from "lucide-react";
 import BlueprintActionButton from "./components/blueprint-action-button";
 import CopyButton from "./components/copy-button";
 import TestButtonWrapper from "./components/test-button-wrapper";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-// Import the Blueprint Research Tab component instead of using dynamic import directly
-import BlueprintResearchTab from "./components/blueprint-research-tab";
 
 interface PageProps {
   params: {
@@ -36,16 +33,13 @@ export default async function BlueprintPage(props: PageProps) {
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full">
-      {/* Restore header with blueprint title and status */}
+    <div className="flex flex-col h-full">
+      {/* Header with blueprint title and status */}
       <div className="p-6 flex items-center justify-between border-b">
         <div className="flex flex-col">
           <div className="flex items-center space-x-4">
             <h1 className="text-2xl font-bold">{blueprint.title}</h1>
-            
-            {/* Use the client component for copy button */}
             <CopyButton textToCopy={`${blueprint.title}: ${blueprint.details}`} />
-            
             <div className="flex items-center">
               {blueprint.isVerified ? (
                 <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 border-none flex items-center gap-1">
@@ -59,38 +53,22 @@ export default async function BlueprintPage(props: PageProps) {
               )}
             </div>
           </div>
-          
           <p className="text-muted-foreground mt-1">
             {blueprint.details || "No details available"}
           </p>
         </div>
-        
         <div className="flex items-center gap-2">
-          {/* Add TestButton component for easy testing */}
           <TestButtonWrapper />
           <BlueprintActionButton blueprintId={blueprint.id} />
         </div>
       </div>
 
-      {/* Main content with tabs for blueprint and research */}
-      <div className="flex-1 p-6 overflow-auto">
-        <Tabs defaultValue="blueprint" className="w-full">
-          <TabsList className="mb-4">
-            <TabsTrigger value="blueprint">Blueprint</TabsTrigger>
-            <TabsTrigger value="research">Research</TabsTrigger>
-          </TabsList>
-          
-          <TabsContent value="blueprint" className="h-full">
-            <ClientWrapper 
-              originalPrompt={blueprint.prompt} 
-              content={blueprint.content}
-            />
-          </TabsContent>
-          
-          <TabsContent value="research">
-            <BlueprintResearchTab blueprintId={blueprint.id} />
-          </TabsContent>
-        </Tabs>
+      {/* Main content */}
+      <div className="flex-1 overflow-auto">
+        <ClientWrapper 
+          originalPrompt={blueprint.prompt} 
+          content={blueprint.content}
+        />
       </div>
     </div>
   );

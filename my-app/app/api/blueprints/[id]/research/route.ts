@@ -19,7 +19,8 @@ export const POST = createRouteHandler<ErrorResponse | SuccessResponse>(
   async (req: NextRequest, { params }) => {
     try {
       console.log('==== RESEARCH GENERATION REQUEST ====');
-      const { id } = params as { id: string };
+      const awaitedParams = await params;
+      const { id } = awaitedParams as { id: string };
       console.log('Blueprint ID:', id);
 
       // Parse request body for options (optional)
@@ -148,7 +149,9 @@ export const GET = createRouteHandler<ErrorResponse | ResearchResponse>(
   ["GET"],
   async (req: NextRequest, { params }) => {
     try {
-      const { id } = params as { id: string };
+      // FIXED: Properly await params before destructuring to get id
+      const awaitedParams = await params;
+      const { id } = awaitedParams as { id: string };
 
       try {
         const supabase = createServiceRoleClient();
