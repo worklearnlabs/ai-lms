@@ -363,7 +363,10 @@ export function CreateBlueprintModal({
   const [examplesError, setExamplesError] = useState<string | null>(null);
   
   // Add this near the other state declarations
-  const [debugResults, setDebugResults] = useState<string>("");
+  const [debugResults, setDebugResults] = useState<string | null>(null);
+  
+  // Add state to track final blueprint generation
+  const [isGeneratingFinalBlueprint, setIsGeneratingFinalBlueprint] = useState(false);
   
   // State for confirmation dialog
   const [showConfirmation, setShowConfirmation] = useState(false);
@@ -633,9 +636,9 @@ export function CreateBlueprintModal({
             }, 50);
           } else {
             // Otherwise go to conversation step
-            setTimeout(() => {
-              setCurrentStep('conversation');
-            }, 50);
+          setTimeout(() => {
+            setCurrentStep('conversation');
+          }, 50);
           }
           
           // Log the origin information to help with debugging
@@ -1409,6 +1412,8 @@ export function CreateBlueprintModal({
       console.log('Final data before blueprint creation:', {
         title: finalData.title,
         search_query: finalData.search_query,
+        editable_search_query: editableSearchQuery,
+        final_search_query_to_be_used: editableSearchQuery || finalData.search_query || "",
         description: finalData.description || description,
         prompt,
         contentKeys: Object.keys(content)
@@ -1417,7 +1422,7 @@ export function CreateBlueprintModal({
       // Construct the blueprint data, only including search_query if defined
       const blueprintData = {
         title: finalData.title,
-        ...(editableSearchQuery ? { search_query: editableSearchQuery } : {}), // Only include if defined and use editable version
+        search_query: editableSearchQuery || finalData.search_query || "", // Always include search_query with fallbacks
         details: finalData.description || description, // Use local description state as fallback
         prompt,
         content,
@@ -1636,182 +1641,306 @@ export function CreateBlueprintModal({
    * generate a proper search query for the research agent.
    */
   const generateFinalBlueprint = async () => {
-    if (!tempBlueprintId) {
-      throw new Error("No temporary blueprint ID available");
-    }
-    
-    // Skip API call if we already have a search query in finalData
-    if (finalData && finalData.search_query) {
-      console.log("Using existing search query, skipping finalization API call:", finalData.search_query);
-      
-      // Make sure the editable search query is set
-      if (!editableSearchQuery) {
-        setEditableSearchQuery(finalData.search_query);
-      }
-      
-      // Double check we're not accidentally clearing the existing search query
-      if (editableSearchQuery && editableSearchQuery !== finalData.search_query) {
-        console.log("Maintaining user's edited search query instead of the one in finalData");
-      }
-      
-      // Move to the review step directly
-      setCurrentStep('review');
-      setIsLoading(false); // Make sure loading state is cleared
+    if (!prompt || !questions || !responses || Object.keys(responses).length === 0) {
+      toast.error("Missing required data for blueprint generation");
       return;
     }
-    
-    setIsLoading(true);
+
+    // Record the current timestamp for debug info
+    const generationStartTime = new Date().toISOString();
+
+    setIsGeneratingFinalBlueprint(true);
+    setDebugResults(prevDebug => {
+      try {
+        const currentDebug = prevDebug ? JSON.parse(prevDebug) : {};
+        return JSON.stringify({
+          ...currentDebug,
+          reasoning_agent: {
+            status: 'pending',
+            time_started: generationStartTime,
+            details: 'Started generating search query...'
+          }
+        });
+      } catch (e) {
+        console.error("Error parsing debug info:", e);
+        return JSON.stringify({
+          reasoning_agent: {
+            status: 'pending',
+            time_started: generationStartTime,
+            details: 'Started generating search query...'
+          }
+        });
+      }
+    });
     
     try {
-      console.log("Generating final blueprint data from responses");
-      
-      // Prepare data for the final blueprint generation
-      const generateData = {
-        blueprint_id: tempBlueprintId,
+      // Prepare questions and responses for the API call
+      const questionAnswer = Object.entries(responses).map(([id, answer]) => {
+        const question = questions.find(q => q.id.toString() === id);
+        return {
+          question: question?.content || "", // Using content instead of question
+          answer
+        };
+      });
+
+      // Prepare the data according to what the API expects (FinalizeRequestSchema)
+      const data = {
+        blueprint_id: tempBlueprintId, // Add the required blueprint_id
         prompt,
-        description: description, // Include current description if available
-        responses: { ...responses }, // Use all collected responses
-        user_skill_level: userData?.skill_level || userData?.user_skill_level, // Include user skill level if available
-        learning_objective: userData?.learning_objectives || userData?.user_learning_goals // Include learning objective if available
+        responses, // Send the actual responses object as required by the API schema
+        user_skill_level: userData?.skill_level, // Add user skill level if available
+        learning_objective: userData?.learning_objectives // Add learning objective if available
       };
       
-      // Call the API to generate the final blueprint
-      // This endpoint should use all responses to generate an improved search_query for research
-      console.log("Calling finalize API to generate the refined search_query and other blueprint details", generateData);
-      console.log("Current description before finalize:", description);
+      console.log("Sending data to finalize endpoint:", {
+        blueprint_id: data.blueprint_id,
+        prompt_length: data.prompt.length,
+        responses_count: Object.keys(data.responses || {}).length
+      });
+      
+      // Call the API to get the final blueprint data
       const response = await fetch('/api/blueprints/reason/finalize', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache'
         },
-        body: JSON.stringify(generateData),
+        body: JSON.stringify(data),
         credentials: 'include'
       });
       
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to generate final blueprint: ${response.status} ${errorText}`);
+        throw new Error(`Failed to generate final blueprint: ${response.status}`);
       }
+
+      const result = await response.json();
+      console.log("Finalized blueprint data from OpenAI:", {
+        search_query_length: result.search_query?.length || 0,
+        hasSearchQuery: !!result.search_query
+      });
+
+      // Update local state
+      setFinalData(result);
+      setEditableSearchQuery(result.search_query || "");
+
+      // Record the generation completion timestamp
+      const generationCompleteTime = new Date().toISOString();
       
-      // Parse and update the final data
-      const data = await response.json();
-      
-      // Update the final data state
-      // data.search_query should be generated by the API based on the user's responses
-      // This will be passed to the research agent (Perplexity) when the blueprint is created
-      const finalTitle = data.title || title;
-      console.log("Setting finalData with title:", finalTitle);
-      setFinalData({
-        title: finalTitle,
-        search_query: data.search_query, // Only use the API-generated search_query, no fallback
-        description: data.description || description,
-        skill_level: data.skill_level || 'beginner',
-        estimated_time: data.estimated_time || '1-2 hours',
-        prerequisites: data.prerequisites || []
+      // Update debug info with success for generation
+      setDebugResults(prevDebug => {
+        try {
+          const currentDebug = prevDebug ? JSON.parse(prevDebug) : {};
+          return JSON.stringify({
+            ...currentDebug,
+            reasoning_agent: {
+              ...currentDebug.reasoning_agent,
+              status: 'generated',
+              time_completed: generationCompleteTime,
+              details: 'Successfully generated search query',
+              search_query_length: result.search_query?.length || 0,
+              saving_to_db: 'pending'
+            }
+          });
+        } catch (e) {
+          console.error("Error updating debug info:", e);
+          return JSON.stringify({
+            reasoning_agent: {
+              status: 'generated',
+              time_started: generationStartTime,
+              time_completed: generationCompleteTime,
+              details: 'Successfully generated search query',
+              search_query_length: result.search_query?.length || 0,
+              saving_to_db: 'pending'
+            }
+          });
+        }
       });
       
-      // Also update the editable search query
-      setEditableSearchQuery(data.search_query);
-      
-      // Update debug information with the generated search query
-      // First, get the current debug data
-      let currentDebugInfo: {
-        agents?: {
-          reasoning_agent?: {
-            outputs?: Record<string, unknown>;
-            status?: string;
-          };
-        };
-        status?: string;
-        [key: string]: unknown;
-      } = {};
-      try {
-        if (debugResults) {
-          currentDebugInfo = JSON.parse(debugResults);
-        }
-      } catch (e) {
-        console.error("Error parsing debug results:", e);
-        currentDebugInfo = {}; // Reset if parsing fails
-      }
-      
-      // Update the debug data with the search query and mark as passed
-      const updatedDebugInfo = {
-        ...currentDebugInfo,
-        agents: {
-          ...(currentDebugInfo.agents || {}),
-          reasoning_agent: {
-            ...(currentDebugInfo.agents?.reasoning_agent || {}),
-            outputs: {
-              ...(currentDebugInfo.agents?.reasoning_agent?.outputs || {}),
-              search_query: data.search_query
+      // Save the search query to the database right away
+      if (tempBlueprintId && result.search_query) {
+        const dbSaveStartTime = new Date().toISOString();
+        
+        try {
+          const saveResponse = await fetch(`/api/blueprints/${tempBlueprintId}`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
             },
-            status: 'passed' // Mark reasoning agent as passed
+            body: JSON.stringify({
+              search_query: result.search_query
+            }),
+            credentials: 'include'
+          });
+          
+          if (!saveResponse.ok) {
+            throw new Error(`Failed to save search query: ${saveResponse.status}`);
           }
-        },
-        // Update the overall status as well
-        status: 'passed'
-      };
-      
-      // Set the updated debug results
-      setDebugResults(JSON.stringify(updatedDebugInfo, null, 2));
-      
-      console.log("Final blueprint data generated:", data);
-      
-      // Combine question responses into content object
-      const content = {
-        questions,
-        responses
-      };
-      
-      return { prompt, content };
+          
+          console.log("Successfully saved search query to database!", result.search_query.substring(0, 100) + "...");
+          const dbSaveCompleteTime = new Date().toISOString();
+          
+          // Update debug info with success for saving to database
+          setDebugResults(prevDebug => {
+            try {
+              const currentDebug = prevDebug ? JSON.parse(prevDebug) : {};
+              return JSON.stringify({
+                ...currentDebug,
+                reasoning_agent: {
+                  ...currentDebug.reasoning_agent,
+                  status: 'passed',
+                  saving_to_db: 'success',
+                  time_saved_to_db: dbSaveCompleteTime,
+                  details: 'Successfully generated and saved search query to database'
+                }
+              });
+            } catch (e) {
+              console.error("Error updating debug info for DB save:", e);
+              return JSON.stringify({
+                reasoning_agent: {
+                  status: 'passed',
+                  time_started: generationStartTime,
+                  time_completed: generationCompleteTime,
+                  time_saved_to_db: dbSaveCompleteTime,
+                  details: 'Successfully generated and saved search query to database',
+                  search_query_length: result.search_query?.length || 0,
+                  saving_to_db: 'success'
+                }
+              });
+            }
+          });
+          
+          toast.success("Search query saved successfully", {
+            description: "Your blueprint is ready for review"
+          });
     } catch (error) {
-      console.error("Error generating final blueprint:", error);
-      toast.error("Failed to generate final blueprint", {
-        description: error instanceof Error ? error.message : "Unknown error occurred"
+          console.error("Error saving search query to database:", error);
+          
+          // Extract error message with type handling
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          
+          // Update debug info with failure for saving to database
+          setDebugResults(prevDebug => {
+            try {
+              const currentDebug = prevDebug ? JSON.parse(prevDebug) : {};
+              return JSON.stringify({
+                ...currentDebug,
+                reasoning_agent: {
+                  ...currentDebug.reasoning_agent,
+                  status: 'failed',
+                  saving_to_db: 'failed',
+                  error: errorMessage,
+                  details: 'Generated search query but failed to save to database'
+                }
+              });
+            } catch (e) {
+              console.error("Error updating debug info for DB save failure:", e);
+              return JSON.stringify({
+                reasoning_agent: {
+                  status: 'failed',
+                  time_started: generationStartTime,
+                  time_completed: generationCompleteTime,
+                  details: 'Generated search query but failed to save to database',
+                  search_query_length: result.search_query?.length || 0,
+                  saving_to_db: 'failed',
+                  error: errorMessage
+                }
+              });
+            }
+          });
+          
+          toast.error("Failed to save search query", {
+            description: "Please try again or contact support if the issue persists"
+          });
+        }
+      } else {
+        if (!tempBlueprintId) {
+          console.warn("No blueprint ID available to save search query");
+          toast.warning("Blueprint ID not available", {
+            description: "Search query generated but couldn't be saved without a blueprint ID"
+          });
+        } else if (!result.search_query) {
+          console.warn("No search query generated to save");
+          toast.warning("No search query generated", {
+            description: "Please try again or contact support"
+          });
+        }
+        
+        // Update debug info with missing data for saving to database
+        setDebugResults(prevDebug => {
+          try {
+            const currentDebug = prevDebug ? JSON.parse(prevDebug) : {};
+            const reason = !tempBlueprintId 
+              ? "Missing blueprint ID" 
+              : !result.search_query 
+                ? "No search query generated" 
+                : "Unknown reason";
+                
+            return JSON.stringify({
+              ...currentDebug,
+              reasoning_agent: {
+                ...currentDebug.reasoning_agent,
+                status: 'warning',
+                saving_to_db: 'skipped',
+                details: `Generated search query but could not save to database: ${reason}`
+              }
+            });
+          } catch (e) {
+            console.error("Error updating debug info for DB save skip:", e);
+            return JSON.stringify({
+              reasoning_agent: {
+                status: 'warning',
+                time_started: generationStartTime,
+                time_completed: generationCompleteTime,
+                details: 'Generated search query but could not save to database',
+                search_query_length: result.search_query?.length || 0,
+                saving_to_db: 'skipped',
+                reason: !tempBlueprintId 
+                  ? "Missing blueprint ID" 
+                  : !result.search_query 
+                    ? "No search query generated" 
+                    : "Unknown reason"
+              }
+            });
+          }
+        });
+      }
+
+    } catch (error) {
+      console.error("Error in generateFinalBlueprint:", error);
+      
+      // Extract error message with type handling
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      toast.error("Failed to generate blueprint", {
+        description: errorMessage || "An unexpected error occurred"
       });
       
-      // Update debug information to show failure
-      let currentDebugInfo: {
-        agents?: {
-          reasoning_agent?: {
-            outputs?: Record<string, unknown>;
-            status?: string;
-          };
-        };
-        status?: string;
-        [key: string]: unknown;
-      } = {};
-      try {
-        if (debugResults) {
-          currentDebugInfo = JSON.parse(debugResults);
+      // Update debug info with failure
+      setDebugResults(prevDebug => {
+        try {
+          const currentDebug = prevDebug ? JSON.parse(prevDebug) : {};
+          return JSON.stringify({
+            ...currentDebug,
+            reasoning_agent: {
+              ...currentDebug.reasoning_agent,
+              status: 'failed',
+              error: errorMessage,
+              details: 'Failed to generate search query'
+            }
+          });
+        } catch (e) {
+          console.error("Error updating debug info for generation failure:", e);
+          return JSON.stringify({
+            reasoning_agent: {
+              status: 'failed',
+              time_started: generationStartTime,
+              error: errorMessage,
+              details: 'Failed to generate search query'
+            }
+          });
         }
-      } catch (e) {
-        console.error("Error parsing debug results:", e);
-        currentDebugInfo = {}; // Reset if parsing fails
-      }
-      
-      // Update the debug data to mark reasoning as failed
-      const updatedDebugInfo = {
-        ...currentDebugInfo,
-        agents: {
-          ...(currentDebugInfo.agents || {}),
-          reasoning_agent: {
-            ...(currentDebugInfo.agents?.reasoning_agent || {}),
-            status: 'failed' // Mark reasoning agent as failed
-          }
-        },
-        // Update the overall status as well
-        status: 'failed'
-      };
-      
-      // Set the updated debug results
-      setDebugResults(JSON.stringify(updatedDebugInfo, null, 2));
-      
-      return null;
+      });
     } finally {
-      setIsLoading(false);
+      setIsGeneratingFinalBlueprint(false);
     }
   };
 
@@ -1967,11 +2096,13 @@ export function CreateBlueprintModal({
             // Move to review step
             setCurrentStep('review');
           } else {
-            // Generate the final blueprint data based on responses
-            await generateFinalBlueprint();
-            
-            // Move to review step
-            setCurrentStep('review');
+            // Show a specific toast for generating search query
+            toast.loading("Generating search query...", { id: "generate-search-query" });
+          // Generate the final blueprint data based on responses
+          await generateFinalBlueprint();
+            // The success toast is now handled in the generateFinalBlueprint function
+          // Move to review step
+          setCurrentStep('review');
           }
         } catch (error) {
           console.error("Error generating final blueprint:", error);
@@ -3200,7 +3331,7 @@ export function CreateBlueprintModal({
   }, []); // Empty dependency array means this runs once on mount
 
   // Add this after other state variables around line 301
-  const [editableSearchQuery, setEditableSearchQuery] = useState<string>("");
+  const [editableSearchQuery, setEditableSearchQuery] = useState<string>(finalData?.search_query || "");
 
   // Add this useEffect after other useEffects
   useEffect(() => {
@@ -3224,6 +3355,14 @@ export function CreateBlueprintModal({
 
   // Add a function to handle direct tab navigation
   const handleTabClick = (step: 'prompt' | 'conversation' | 'review') => {
+    // Log the request to verify the search query
+    console.log("Verifying search query before tab change to:", step, {
+      hasEditableSearchQuery: !!editableSearchQuery,
+      hasFinalDataSearchQuery: !!(finalData && finalData.search_query),
+      tempBlueprintId,
+      timestamp: new Date().toISOString()
+    });
+    
     // Don't allow skipping steps if prerequisites aren't met
     if (step === 'conversation' && !prompt) {
       toast.error("Please enter a prompt first", {
@@ -3233,15 +3372,112 @@ export function CreateBlueprintModal({
     }
 
     if (step === 'review') {
-      // If we have a search query already (from an existing blueprint), allow going to review
+      // First check if all questions are answered
+      const allQuestionsAnswered = questions.every(q => questionStatus[q.id] === 'complete');
+      
+      if (!allQuestionsAnswered) {
+        toast.error("Please answer all questions first", {
+          description: "You need to complete the questionnaire before proceeding to the review step"
+        });
+        return;
+      }
+      
+      // If we have a search query already (from an existing blueprint), verify it's in the database
       if (editableSearchQuery || (finalData && finalData.search_query)) {
         // Make sure editableSearchQuery is in sync with finalData
         if (finalData && finalData.search_query && !editableSearchQuery) {
           console.log("Using existing search query from finalData:", finalData.search_query);
           setEditableSearchQuery(finalData.search_query);
         }
-        console.log("Navigating directly to review tab with existing search query:", editableSearchQuery || (finalData?.search_query));
-        setCurrentStep('review');
+        
+        // Verify the search query is saved in the database
+        if (tempBlueprintId) {
+          toast.loading("Verifying search query...");
+          
+          // Fetch the blueprint to check if search_query is actually saved
+          fetch(`/api/blueprints/${tempBlueprintId}?t=${Date.now()}`, {
+            method: 'GET',
+            credentials: 'include',
+            headers: {
+              'Cache-Control': 'no-cache, no-store, must-revalidate'
+            }
+          })
+          .then(response => response.json())
+          .then(blueprintData => {
+            toast.dismiss();
+            console.log("Verification results:", {
+              blueprintId: blueprintData.id,
+              hasSearchQueryInDb: !!blueprintData.search_query,
+              searchQueryLength: blueprintData.search_query?.length || 0,
+              currentEditableSearchQuery: editableSearchQuery?.slice(0, 30) + "...",
+              match: blueprintData.search_query === editableSearchQuery
+            });
+            
+            if (!blueprintData.search_query) {
+              console.log("Search query not found in database, saving it now");
+              
+              
+              // Save the search query to the database
+              return fetch(`/api/blueprints/${tempBlueprintId}`, {
+                method: 'PATCH',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  search_query: editableSearchQuery || finalData?.search_query || ""
+                }),
+                credentials: 'include'
+              }).then(saveResponse => {
+                if (saveResponse.ok) {
+                  console.log("Successfully saved search query to database");
+                  
+                  // Also update the debug info to reflect saved status
+                  setDebugResults(prevDebug => {
+                    try {
+                      const currentDebug = prevDebug ? JSON.parse(prevDebug) : {};
+                      return JSON.stringify({
+                        ...currentDebug,
+                        reasoning_agent: {
+                          ...currentDebug.reasoning_agent,
+                          status: 'passed',
+                          saving_to_db: 'success',
+                          time_saved_to_db: new Date().toISOString(),
+                          details: 'Successfully saved search query to database during tab verification'
+                        }
+                      });
+                    } catch (e) {
+                      console.error("Error updating debug info:", e);
+                      return JSON.stringify({
+                        reasoning_agent: {
+                          status: 'passed',
+                          time_saved_to_db: new Date().toISOString(),
+                          details: 'Successfully saved search query to database during tab verification'
+                        }
+                      });
+                    }
+                  });
+                  
+                  toast.success("Search query saved");
+                  setCurrentStep('review');
+                } else {
+                  throw new Error("Failed to save search query");
+                }
+              });
+            } else {
+              console.log("Search query verified in database:", blueprintData.search_query);
+              setCurrentStep('review');
+            }
+          })
+          .catch(error => {
+            console.error("Error verifying search query:", error);
+            toast.error("Error verifying search query", {
+              description: "Please use the Next button to ensure proper processing"
+            });
+          });
+        } else {
+          console.log("No blueprint ID available to verify search query");
+          setCurrentStep('review');
+        }
         return;
       }
       
@@ -3254,17 +3490,12 @@ export function CreateBlueprintModal({
         return;
       }
       
-      // If we have questions/responses but no finalData or no search query, generate it
-      if (!finalData || !finalData.search_query) {
-        toast.info("Generating search query...", {
-          description: "Please wait while we prepare your review"
-        });
-        generateFinalBlueprint();
-        return;
-      }
-      
-      // Otherwise, allow going to review
-      setCurrentStep('review');
+      // If we have questions/responses but no finalData or no search query, 
+      // inform user they need to use the Next button to properly generate a search query
+      toast.info("Please use the Next button", {
+        description: "To ensure your information is properly processed, please use the Next button at the bottom of the screen"
+      });
+      return;
     } else {
       // For other steps, just navigate directly
       setCurrentStep(step);
@@ -3311,7 +3542,7 @@ export function CreateBlueprintModal({
               
               {/* Step Indicators */}
               <div className="flex items-center gap-6 text-sm">
-                <div 
+                <div
                   className={cn(
                     "flex items-center gap-2 cursor-pointer",
                     currentStep === "prompt"
@@ -3332,8 +3563,8 @@ export function CreateBlueprintModal({
                   </div>
                   <span>Define Goal</span>
                 </div>
-                
-                <div 
+
+                <div
                   className={cn(
                     "flex items-center gap-2 cursor-pointer",
                     currentStep === "conversation"
@@ -3354,28 +3585,43 @@ export function CreateBlueprintModal({
                   </div>
                   <span>Clarify Details</span>
                 </div>
-                
-                <div 
-                  className={cn(
-                    "flex items-center gap-2 cursor-pointer",
-                    currentStep === "review"
-                      ? "text-primary font-medium"
-                      : "text-muted-foreground"
-                  )}
-                  onClick={() => handleTabClick('review')}
-                >
+
+                {/* Review tab - disabled if conditions aren't met */}
+                {(() => {
+                  // Check if review tab should be enabled
+                  const allQuestionsAnswered = questions.every(q => questionStatus[q.id] === 'complete');
+                  const hasSearchQuery = !!(editableSearchQuery || (finalData && finalData.search_query));
+                  const isReviewEnabled = (allQuestionsAnswered && hasSearchQuery) || currentStep === "review";
+                  
+                  return (
                   <div
                     className={cn(
-                      "w-5 h-5 flex items-center justify-center rounded-full text-xs",
+                        "flex items-center gap-2",
                       currentStep === "review"
-                        ? "border-primary border text-primary font-medium"
-                        : "border border-muted-foreground/50 text-muted-foreground"
-                    )}
+                        ? "text-primary font-medium"
+                          : isReviewEnabled 
+                            ? "text-muted-foreground cursor-pointer"
+                            : "text-muted-foreground/50 cursor-not-allowed"
+                      )}
+                      onClick={isReviewEnabled ? () => handleTabClick('review') : undefined}
+                      title={!isReviewEnabled ? "Complete all questions and click Next to proceed" : ""}
                   >
-                    3
+                    <div
+                      className={cn(
+                        "w-5 h-5 flex items-center justify-center rounded-full text-xs",
+                        currentStep === "review"
+                          ? "border-primary border text-primary font-medium"
+                            : isReviewEnabled
+                              ? "border border-muted-foreground/50 text-muted-foreground"
+                              : "border border-muted-foreground/30 text-muted-foreground/50"
+                      )}
+                    >
+                      3
+                    </div>
+                    <span>Review</span>
                   </div>
-                  <span>Review</span>
-                </div>
+                  );
+                })()}
               </div>
             </div>
           </DialogHeader>
@@ -3586,12 +3832,12 @@ export function CreateBlueprintModal({
                       <div className="flex justify-between items-center mb-3">
                         <h3 className="text-2xl font-semibold text-white">Confirm Scope</h3>
                         <span className="text-xs px-2.5 py-1.5 rounded-full bg-slate-700/40 text-slate-300">AI Generated</span>
-                      </div>
+                    </div>
                       <p className="text-sm text-slate-400 mb-5 leading-relaxed">
                         These details will be used to create your blueprint. You can edit the final search query to refine the implementation.
                       </p>
-                    </div>
-                    
+                  </div>
+                  
                     <div className="rounded-md border border-slate-700/50 focus-within:ring-1 focus-within:ring-slate-500/40">
                       <Textarea 
                         value={editableSearchQuery}
