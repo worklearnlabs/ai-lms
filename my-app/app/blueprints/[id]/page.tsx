@@ -7,6 +7,9 @@ import { CheckCircle2 } from "lucide-react";
 import BlueprintActionButton from "./components/blueprint-action-button";
 import CopyButton from "./components/copy-button";
 import TestButtonWrapper from "./components/test-button-wrapper";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+// Import the Blueprint Research Tab component instead of using dynamic import directly
+import BlueprintResearchTab from "./components/blueprint-research-tab";
 
 interface PageProps {
   params: {
@@ -69,11 +72,26 @@ export default async function BlueprintPage(props: PageProps) {
         </div>
       </div>
 
-      {/* Main content with flow diagram */}
-      <ClientWrapper 
-        originalPrompt={blueprint.prompt} 
-        content={blueprint.content}
-      />
+      {/* Main content with tabs for blueprint and research */}
+      <div className="flex-1 p-6 overflow-auto">
+        <Tabs defaultValue="blueprint" className="w-full">
+          <TabsList className="mb-4">
+            <TabsTrigger value="blueprint">Blueprint</TabsTrigger>
+            <TabsTrigger value="research">Research</TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="blueprint" className="h-full">
+            <ClientWrapper 
+              originalPrompt={blueprint.prompt} 
+              content={blueprint.content}
+            />
+          </TabsContent>
+          
+          <TabsContent value="research">
+            <BlueprintResearchTab blueprintId={blueprint.id} />
+          </TabsContent>
+        </Tabs>
+      </div>
     </div>
   );
 } 

@@ -22,6 +22,7 @@ export type Database = {
           title: string
           updated_at: string
           user_id: string | null
+          search_query: string | null
         }
         Insert: {
           clone_count?: number | null
@@ -35,6 +36,7 @@ export type Database = {
           title: string
           updated_at?: string
           user_id?: string | null
+          search_query?: string | null
         }
         Update: {
           clone_count?: number | null
@@ -48,6 +50,7 @@ export type Database = {
           title?: string
           updated_at?: string
           user_id?: string | null
+          search_query?: string | null
         }
         Relationships: [
           {
@@ -57,6 +60,50 @@ export type Database = {
             referencedRelation: "users"
             referencedColumns: ["id"]
           },
+        ]
+      }
+      blueprint_research: {
+        Row: {
+          id: string
+          blueprint_id: string
+          search_query: string
+          research_data: Json
+          sources: Json
+          usage_metrics: Json
+          status: string // research_status_type
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          blueprint_id: string
+          search_query: string
+          research_data: Json
+          sources: Json
+          usage_metrics: Json
+          status?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          blueprint_id?: string
+          search_query?: string
+          research_data?: Json
+          sources?: Json
+          usage_metrics?: Json
+          status?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "blueprint_research_blueprint_id_fkey"
+            columns: ["blueprint_id"]
+            isOneToOne: false
+            referencedRelation: "blueprints"
+            referencedColumns: ["id"]
+          }
         ]
       }
       businesses: {
