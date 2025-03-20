@@ -2572,24 +2572,89 @@ export function CreateBlueprintModal({
             inputs: blueprintData?.search_query ? {
               search_query: blueprintData.search_query
             } : undefined,
-            // Add mock outputs for testing
+            // Add mock outputs for testing - using proper PerplexityResearchResponse format
             outputs: blueprintData?.search_query ? {
               structured_data: {
-                // This is mock data for testing the pipeline
-                title: "Mock Research Results",
-                summary: "This is simulated structured data for testing the blueprint pipeline.",
-                components: [
-                  { 
-                    name: "Component 1", 
-                    description: "Simulated component description"
+                complexity: "medium",
+                steps: [
+                  {
+                    number: 1,
+                    title: "Define System Requirements",
+                    estimated_time: 60,
+                    instructions: [
+                      "Identify key data points needed from customer support tickets",
+                      "Define success criteria for solution suggestions",
+                      "Establish integration points with existing support systems"
+                    ],
+                    tools: ["Project Management Software", "Documentation Tools"],
+                    subtasks: [
+                      {task_number: 1, description: "Create requirements document", estimated_time: 30},
+                      {task_number: 2, description: "Get stakeholder approval", estimated_time: 20}
+                    ]
                   },
-                  { 
-                    name: "Component 2", 
-                    description: "Another simulated component"
+                  {
+                    number: 2,
+                    title: "Data Collection & Preparation",
+                    estimated_time: 120,
+                    instructions: [
+                      "Gather historical support tickets",
+                      "Clean and normalize ticket data",
+                      "Extract resolution patterns and categorize solutions"
+                    ],
+                    tools: ["Data Processing Tools", "Database Management System"],
+                    subtasks: [
+                      {task_number: 1, description: "Export ticket data from support system", estimated_time: 30},
+                      {task_number: 2, description: "Implement data cleaning scripts", estimated_time: 45}
+                    ]
                   }
                 ],
-                status: "complete"
-              }
+                sources: [
+                  {
+                    title: "Best Practices for AI in Customer Support",
+                    url: "https://example.com/ai-customer-support",
+                    snippet: "AI systems for customer support should maintain context and provide specific solutions."
+                  }
+                ],
+                usage_metrics: {
+                  citation_tokens: 150,
+                  search_queries: 5
+                }
+              },
+              raw_data: JSON.stringify({
+                complexity: "medium",
+                steps: [
+                  {
+                    number: 1,
+                    title: "Define System Requirements",
+                    estimated_time: 60,
+                    instructions: [
+                      "Identify key data points needed from customer support tickets",
+                      "Define success criteria for solution suggestions",
+                      "Establish integration points with existing support systems"
+                    ],
+                    tools: ["Project Management Software", "Documentation Tools"],
+                    subtasks: [
+                      {task_number: 1, description: "Create requirements document", estimated_time: 30},
+                      {task_number: 2, description: "Get stakeholder approval", estimated_time: 20}
+                    ]
+                  },
+                  {
+                    number: 2,
+                    title: "Data Collection & Preparation",
+                    estimated_time: 120,
+                    instructions: [
+                      "Gather historical support tickets",
+                      "Clean and normalize ticket data",
+                      "Extract resolution patterns and categorize solutions"
+                    ],
+                    tools: ["Data Processing Tools", "Database Management System"],
+                    subtasks: [
+                      {task_number: 1, description: "Export ticket data from support system", estimated_time: 30},
+                      {task_number: 2, description: "Implement data cleaning scripts", estimated_time: 45}
+                    ]
+                  }
+                ]
+              })
             } : undefined
           }
         },
@@ -3513,6 +3578,86 @@ export function CreateBlueprintModal({
     }
   }, [finalData, editableSearchQuery]);
 
+  // Function to test the research API call without finalizing the blueprint
+  const testResearchApi = async () => {
+    if (!tempBlueprintId) {
+      toast.error("No blueprint ID available");
+      return;
+    }
+    
+    setIsLoading(true);
+    toast.info("Testing research API generation...");
+    
+    try {
+      // Take search_query from the blueprint data or search query input in review step
+      const query = editableSearchQuery || (finalData?.search_query) || `Research about: ${title || "Untitled Blueprint"}`;
+      console.log("Using search query:", query);
+      
+      // Call the research API endpoint directly
+      const response = await fetch(`/api/blueprints/${tempBlueprintId}/research`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          complexity: "medium", 
+          maxSteps: 10
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `API error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // Open debug window and show the response
+      setIsDebugOpen(true);
+      
+      // Set a comprehensive debug info object similar to what debugBlueprint does
+      const debugInfo = {
+        timestamp: new Date().toISOString(),
+        blueprint_id: tempBlueprintId,
+        blueprint_title: title,
+        status: "passed",
+        agents: {
+          research_agent: {
+            status: "passed",
+            inputs: {
+              search_query: query
+            },
+            outputs: {
+              structured_data: data.data
+            }
+          }
+        },
+        // Raw data for reference
+        raw_research_response: data
+      };
+      
+      // Set the debug results
+      setDebugResults(JSON.stringify(debugInfo, null, 2));
+      
+      toast.success("Research API call successful!", {
+        description: `Generated ${data.data.steps.length} steps from Perplexity API`
+      });
+    } catch (error) {
+      console.error("Research API test error:", error);
+      toast.error("Research API test failed", {
+        description: error instanceof Error ? error.message : String(error)
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  const canSubmit = 
+    !isLoading && 
+    (currentStep === 'review' || 
+     (currentStep === 'prompt' && prompt.trim()) ||
+     (currentStep === 'conversation' && (!questions.length || questions.every(q => questionStatus[q.id] === 'complete'))));
+
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       {triggerButton && <DialogTrigger asChild>{triggerButton}</DialogTrigger>}
@@ -3856,113 +4001,65 @@ export function CreateBlueprintModal({
           </div>
           
           {/* Footer with Back and Continue/Create buttons */}
-          <DialogFooter className="border-t py-4 px-8 mt-auto">
-            <div className="w-full flex items-center justify-between">
-              <div className="flex items-center">
-                {currentStep !== 'prompt' && (
-                  <Button 
-                    type="button" 
-                    variant="ghost" 
-                    onClick={handleBack} 
-                    disabled={isLoading} 
-                    className="gap-2 text-muted-foreground hover:text-foreground"
-                  >
-                    <ArrowLeft className="h-4 w-4" />
-                    Back
-                  </Button>
-                )}
-                
-                {/* Debug and Delete buttons - only shown in development mode */}
-                {process.env.NODE_ENV === 'development' && (
-                  <div className="flex ml-4 space-x-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="text-xs border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-900 gap-1"
-                      onClick={(e) => {
-                        // Prevent any default behavior
-                        e.preventDefault();
-                        e.stopPropagation();
-                        
-                        // Set debugIsOpen to true
-                        setIsDebugOpen(!isDebugOpen);
-                        
-                        // Also add sample API debug data for demonstration
-                        if (!isDebugOpen) {
-                          // When opening, populate some API debug data
-                          const sampleApiDebugData = {
-                            openaiRequest: {
-                              endpoint: '/api/blueprints/reason/finalize',
-                              method: 'POST',
-                              data: {
-                                prompt: prompt,
-                                description: description,
-                                responses: responses
-                              }
-                            },
-                            openaiResponse: {
-                              title: "Competitive Marketing Analysis AI",
-                              search_query: "Create an AI system to analyze competitors' marketing materials",
-                              description: "Detailed description would be here"
-                            }
-                          };
-                          
-                          // Update API debug data
-                          setApiDebugData(sampleApiDebugData);
-                        }
-                        
-                        // Trigger debug blueprint
-                        debugBlueprint();
-                      }}
-                      disabled={isLoading || !tempBlueprintId}
-                    >
-                      Debug <span className="sr-only">Debug</span>
-                    </Button>
-                    
-                    {tempBlueprintId && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="text-xs border-orange-300 text-orange-600 hover:bg-orange-50 dark:border-orange-800 dark:text-orange-400 dark:hover:bg-orange-950/30"
-                        onClick={deleteBlueprint}
-                        disabled={isLoading}
-                      >
-                        Delete
-                      </Button>
-                    )}
-                  </div>
-                )}
-              </div>
-              <Button 
-                type="button" 
-                onClick={handleSubmit}
-                disabled={
-                  isLoading || 
-                  (currentStep === 'prompt' && !prompt.trim()) ||
-                  (currentStep === 'prompt' && isExistingBlueprint && !promptChanged) ||
-                  (currentStep === 'conversation' && questions.length > 0 && !questions.every(q => questionStatus[q.id] === 'complete'))
-                }
-                className="gap-2 px-8"
+          <DialogFooter className="flex items-center justify-between border-t p-4 bg-muted/40">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={handleBack}
+              disabled={isLoading}
+              className="mr-auto"
+            >
+              Back
+            </Button>
+            {process.env.NODE_ENV === 'development' && (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setIsDebugOpen(!isDebugOpen)}
+                  className="mr-2"
+                >
+                  Debug
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={deleteBlueprint}
+                  className="mr-2"
+                >
+                  Delete
+                </Button>
+              </>
+            )}
+            {process.env.NODE_ENV === 'development' && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={testResearchApi}
+                disabled={isLoading || !canSubmit}
+                className="mr-2"
               >
-                {isLoading && !isGeneratingAnswer ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    {currentStep === 'prompt' ? "Generating Questions..." : (
-                      currentStep === 'conversation' ? "Generating Blueprint..." : "Creating Blueprint..."
-                    )}
-                  </>
-                ) : (
-                  <>
-                    {currentStep === 'prompt' && (isExistingBlueprint && promptChanged ? "Refresh Questions" : "Continue")}
-                    {currentStep === 'conversation' && (<>Next <ArrowRight className="h-4 w-4" /></>)}
-                    {currentStep === 'review' && "Create Blueprint"}
-                    {currentStep === 'prompt' && <ArrowRight className="h-4 w-4" />}
-                  </>
-                )}
+                Test Research
               </Button>
-            </div>
+            )}
+            <Button
+              type="submit"
+              variant={canSubmit ? "default" : "outline"}
+              disabled={isLoading || !canSubmit}
+              className={cn(
+                canSubmit ? "bg-primary hover:bg-primary/90" : "bg-muted text-muted-foreground hover:bg-muted",
+                "transition-all"
+              )}
+            >
+              {isLoading ? (
+                <span className="flex items-center gap-1">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Creating...
+                </span>
+              ) : (
+                "Create Blueprint"
+              )}
+            </Button>
           </DialogFooter>
           
           {/* Debug Results Display - only show when isDebugOpen is true */}

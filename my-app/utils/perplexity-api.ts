@@ -75,20 +75,37 @@ export async function generateResearch(
   try {
     // Create prompt
     const prompt = createPrompt(request);
-
+    
+    console.log('==== PERPLEXITY API REQUEST ====');
+    console.log('Query:', request.query);
+    console.log('Prompt:', prompt);
+    
     // Use the Vercel AI SDK to generate text with Perplexity
+    console.log('Calling Perplexity API with model: sonar-pro-online');
+    
     const result = await generateText({
       model: perplexity("sonar-pro-online"),
       prompt,
       maxTokens: 4000,
       temperature: 0.7,
     }) as GenerateTextResponse;
+    
+    console.log('==== PERPLEXITY API RESPONSE ====');
+    console.log('Raw text response:', result.text.substring(0, 500) + '...');
+    console.log('Metadata:', JSON.stringify(result.metadata, null, 2));
 
     // Parse the JSON response from the generated text
     const researchData = JSON.parse(result.text) as Omit<
       PerplexityResearchResponse,
       "sources" | "usage_metrics"
     >;
+    
+    console.log('Parsed research data (first 2 steps):', 
+      JSON.stringify({
+        complexity: researchData.complexity,
+        steps: researchData.steps.slice(0, 2)
+      }, null, 2)
+    );
 
     // Create default usage metrics since toolUsage might not be available
     const usageMetrics: UsageMetrics = {
@@ -103,6 +120,9 @@ export async function generateResearch(
       if (metadata.perplexity?.usage) {
         usageMetrics.citation_tokens = metadata.perplexity.usage.citationTokens || 0;
         usageMetrics.search_queries = metadata.perplexity.usage.numSearchQueries || 0;
+        console.log('Usage metrics found:', usageMetrics);
+      } else {
+        console.log('No usage metrics in response metadata');
       }
     } catch (metadataError) {
       console.warn("Could not extract usage metrics", metadataError);
@@ -116,13 +136,22 @@ export async function generateResearch(
         snippet: source.snippet || "",
       })
     );
+    
+    console.log('Sources found:', formattedSources.length);
+    if (formattedSources.length > 0) {
+      console.log('First source:', JSON.stringify(formattedSources[0], null, 2));
+    }
 
     // Combine everything into our final response format
-    return {
+    const finalResponse = {
       ...researchData,
       sources: formattedSources,
       usage_metrics: usageMetrics,
     } as PerplexityResearchResponse;
+    
+    console.log('==== PERPLEXITY PROCESSING COMPLETE ====');
+    
+    return finalResponse;
   } catch (error) {
     console.error("Error calling Perplexity API:", error);
     throw new Error(`Failed to generate research: ${error}`);

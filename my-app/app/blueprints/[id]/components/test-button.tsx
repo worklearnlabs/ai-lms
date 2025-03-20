@@ -7,6 +7,54 @@ import { toast } from "sonner";
 // import { useRouter } from "next/navigation"; - removed until needed
 import { Zap } from "lucide-react";
 
+// Validate research response format
+function validateResearchResponse(data: unknown): { valid: boolean; message?: string } {
+  try {
+    // Check for required properties
+    if (!data) {
+      return { valid: false, message: "No data provided" };
+    }
+    
+    // If this is a raw DB response, extract research_data
+    const dataObj = data as Record<string, unknown>;
+    const researchData = dataObj.research_data ? dataObj.research_data as Record<string, unknown> : dataObj;
+    
+    // Check for required complexity field
+    if (!researchData.complexity || !["low", "medium", "high"].includes(researchData.complexity as string)) {
+      return { valid: false, message: "Missing or invalid complexity field" };
+    }
+    
+    // Check for steps array
+    if (!researchData.steps || !Array.isArray(researchData.steps) || researchData.steps.length === 0) {
+      return { valid: false, message: "Missing or empty steps array" };
+    }
+    
+    // Validate each step
+    for (const step of researchData.steps) {
+      const stepObj = step as Record<string, unknown>;
+      if (typeof stepObj.number !== 'number') {
+        return { valid: false, message: `Step missing number property` };
+      }
+      if (!stepObj.title || typeof stepObj.title !== 'string') {
+        return { valid: false, message: `Step ${stepObj.number} missing title` };
+      }
+      if (typeof stepObj.estimated_time !== 'number') {
+        return { valid: false, message: `Step ${stepObj.number} missing estimated_time` };
+      }
+      if (!Array.isArray(stepObj.instructions)) {
+        return { valid: false, message: `Step ${stepObj.number} missing instructions array` };
+      }
+      if (!Array.isArray(stepObj.tools)) {
+        return { valid: false, message: `Step ${stepObj.number} missing tools array` };
+      }
+    }
+    
+    return { valid: true };
+  } catch (error) {
+    return { valid: false, message: `Validation error: ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
+
 // Development-only endpoint for testing
 async function callSimpleReasoningApi(prompt: string, sessionId?: string) {
   try {
@@ -218,6 +266,19 @@ export default function TestButton() {
         const response = await callFullFlowApi(prompt);
         
         console.log("Full flow API Response:", response);
+        
+        // Validate research data if present
+        if (response.research) {
+          const validation = validateResearchResponse(response.research);
+          if (!validation.valid) {
+            console.warn("Full flow API returned invalid research data:", validation.message);
+            toast.warning("Research data validation", {
+              description: `Note: Research data format is invalid - ${validation.message}`
+            });
+          } else {
+            console.log("Research data validation passed");
+          }
+        }
         
         if (response.success) {
           toast.success("Complete flow successful!", {

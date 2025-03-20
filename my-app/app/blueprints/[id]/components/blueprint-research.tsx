@@ -72,18 +72,44 @@ export default function BlueprintResearch({
 
       const data = await response.json();
       
-      // Reconstruct the full research data from the database format
+      // Validate that we have proper research data structure
       if (data) {
-        const fullResearch: PerplexityResearchResponse = {
-          ...data.research_data,
-          sources: data.sources || [],
-          usage_metrics: data.usage_metrics || {
+        try {
+          // Verify the required properties exist in the response
+          const researchData = data.research_data || {};
+          const sources = data.sources || [];
+          const usageMetrics = data.usage_metrics || {
             citation_tokens: 0,
             search_queries: 0
+          };
+          
+          // Validate that steps array exists
+          if (!researchData.steps || !Array.isArray(researchData.steps)) {
+            console.warn("Invalid research data structure: missing steps array", researchData);
+            setError("Research data is in an invalid format. Missing steps array.");
+            setIsLoading(false);
+            return;
           }
-        };
-        
-        setResearch(fullResearch);
+          
+          // Validate complexity field
+          if (!researchData.complexity || !["low", "medium", "high"].includes(researchData.complexity)) {
+            console.warn("Invalid research data structure: missing or invalid complexity", researchData);
+            // Set a default rather than failing
+            researchData.complexity = "medium";
+          }
+          
+          // Reconstruct the full research data from the database format
+          const fullResearch: PerplexityResearchResponse = {
+            ...researchData,
+            sources: sources,
+            usage_metrics: usageMetrics
+          };
+          
+          setResearch(fullResearch);
+        } catch (validationError) {
+          console.error("Error validating research data:", validationError);
+          setError("Research data structure is invalid");
+        }
       } else {
         setResearch(null);
       }
