@@ -4,9 +4,8 @@ import { createStandardServerClient } from '@/utils/supabase';
 import { SkillLevelType, MessageRoleType } from '@/types/schema';
 import { generateWithFallback } from '@/utils/ai-orchestrator';
 
-// Only use Edge runtime in production to ensure development mode works properly
-// In development, we need access to environment variables and admin clients
-export const runtime = process.env.NODE_ENV === 'production' ? 'edge' : 'nodejs';
+// Only use nodejs runtime to ensure proper functionality with environment variables and admin clients
+export const runtime = 'nodejs';
 
 // Allow longer timeout for reasoning conversations
 export const maxDuration = 60;

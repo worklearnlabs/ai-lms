@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, Suspense } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { BlueprintsSection } from "@/components/dashboard/blueprints-section"
 import { CreateBlueprintButton } from "./components/create-blueprint-button"
@@ -51,6 +51,20 @@ function formatRelativeDate(dateString: string): string {
   return formatRelativeTime(new Date(dateString));
 }
 
+// Create a wrapper component for the search params functionality
+function BlueprintSearchParamsHandler({ onTemporaryBlueprint }: { onTemporaryBlueprint: (id: string) => void }) {
+  const searchParams = useSearchParams()
+  
+  useEffect(() => {
+    const tempId = searchParams.get('temporaryBlueprintId');
+    if (tempId) {
+      onTemporaryBlueprint(tempId);
+    }
+  }, [searchParams, onTemporaryBlueprint]);
+  
+  return null;
+}
+
 export default function BlueprintsPage() {
   const [blueprints, setBlueprints] = useState<Blueprint[]>([])
   const [loading, setLoading] = useState(true)
@@ -63,7 +77,12 @@ export default function BlueprintsPage() {
   const [selectionMode, setSelectionMode] = useState(false)
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false)
   const [isDeletingMultiple, setIsDeletingMultiple] = useState(false)
-  const searchParams = useSearchParams()
+
+  const handleTemporaryBlueprint = (tempId: string) => {
+    console.log("Temporary blueprint ID found in URL:", tempId);
+    setTemporaryBlueprintId(tempId);
+    setIsModalOpen(true);
+  };
 
   // Log authentication status for debugging
   useEffect(() => {
@@ -93,16 +112,6 @@ export default function BlueprintsPage() {
         // Get the authenticated user first to ensure we have a session
         const supabase = createClientSupabase();
         const { data: authData } = await supabase.auth.getUser();
-        
-        // Check if we need to handle a temporary blueprint from URL param
-        const tempId = searchParams.get('temporaryBlueprintId');
-        if (tempId) {
-          console.log("Temporary blueprint ID found in URL:", tempId);
-          // Set this ID to be handled by the modal component
-          setTemporaryBlueprintId(tempId);
-          // Open the modal immediately for temporary blueprints
-          setIsModalOpen(true);
-        }
         
         if (!authData.user) {
           console.log("No authenticated user found, showing public blueprints only");
@@ -223,7 +232,7 @@ export default function BlueprintsPage() {
     }
 
     fetchBlueprints()
-  }, [searchParams])
+  }, [])
 
   // Function to create a sample blueprint for debugging
   async function createSampleBlueprint() {
@@ -587,149 +596,154 @@ export default function BlueprintsPage() {
   };
   
   return (
-    <div className="flex flex-col w-full max-w-screen-xl mx-auto gap-8 p-4 md:p-8">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-4xl font-bold">Blueprints</h1>
-          <p className="text-muted-foreground mt-1">Create and manage your AI automation blueprints</p>
+    <>
+      <Suspense fallback={null}>
+        <BlueprintSearchParamsHandler onTemporaryBlueprint={handleTemporaryBlueprint} />
+      </Suspense>
+      <div className="flex flex-col w-full max-w-screen-xl mx-auto gap-8 p-4 md:p-8">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h1 className="text-4xl font-bold">Blueprints</h1>
+            <p className="text-muted-foreground mt-1">Create and manage your AI automation blueprints</p>
+          </div>
+          <div className="flex gap-2">
+            {!selectionMode && <CreateBlueprintButton />}
+          </div>
         </div>
-        <div className="flex gap-2">
-          {!selectionMode && <CreateBlueprintButton />}
-        </div>
-      </div>
-      
-      {/* Create Blueprint Modal */}
-      <CreateBlueprintModal 
-        isOpen={isModalOpen}
-        onOpenChange={setIsModalOpen}
-        temporaryBlueprintId={temporaryBlueprintId}
-        onBlueprintCreated={handleBlueprintCreated}
-      />
-      
-      {/* Bulk Delete Confirmation Dialog */}
-      {showDeleteConfirmation && (
-        <Dialog open={showDeleteConfirmation} onOpenChange={setShowDeleteConfirmation}>
-          <DialogContent className="sm:max-w-[425px]">
-            <DialogHeader>
-              <DialogTitle>Delete {selectedBlueprints.length} Blueprints?</DialogTitle>
-              <DialogDescription>
-                Are you sure you want to delete {selectedBlueprints.length} selected blueprint{selectedBlueprints.length !== 1 ? 's' : ''}? 
-                This action cannot be undone and all associated data will be permanently removed.
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button 
-                variant="outline" 
-                onClick={() => setShowDeleteConfirmation(false)}
-                disabled={isDeletingMultiple}
-              >
-                Cancel
-              </Button>
-              <Button 
-                variant="destructive"
-                onClick={handleConfirmedBulkDeletion}
-                disabled={isDeletingMultiple}
-              >
-                {isDeletingMultiple ? 'Deleting...' : 'Delete'}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      )}
-      
-      <Card className="rounded-xl">
-        <CardHeader className="px-6 py-4 border-b">
-          <div className="flex justify-between items-center">
-            <div>
-              <CardTitle>All Blueprints</CardTitle>
-              <CardDescription>
-                Your saved and generated blueprints
-              </CardDescription>
-            </div>
-            {selectionMode ? (
-              <div className="flex gap-2">
-                <Button 
-                  variant="destructive" 
-                  onClick={handleBulkDeleteClick}
-                  disabled={selectedBlueprints.length === 0 || isDeletingMultiple}
-                >
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Delete {selectedBlueprints.length > 0 ? `(${selectedBlueprints.length})` : ''}
-                </Button>
+        
+        {/* Create Blueprint Modal */}
+        <CreateBlueprintModal 
+          isOpen={isModalOpen}
+          onOpenChange={setIsModalOpen}
+          temporaryBlueprintId={temporaryBlueprintId}
+          onBlueprintCreated={handleBlueprintCreated}
+        />
+        
+        {/* Bulk Delete Confirmation Dialog */}
+        {showDeleteConfirmation && (
+          <Dialog open={showDeleteConfirmation} onOpenChange={setShowDeleteConfirmation}>
+            <DialogContent className="sm:max-w-[425px]">
+              <DialogHeader>
+                <DialogTitle>Delete {selectedBlueprints.length} Blueprints?</DialogTitle>
+                <DialogDescription>
+                  Are you sure you want to delete {selectedBlueprints.length} selected blueprint{selectedBlueprints.length !== 1 ? 's' : ''}? 
+                  This action cannot be undone and all associated data will be permanently removed.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
                 <Button 
                   variant="outline" 
-                  onClick={handleCancelSelection}
+                  onClick={() => setShowDeleteConfirmation(false)}
                   disabled={isDeletingMultiple}
                 >
                   Cancel
                 </Button>
+                <Button 
+                  variant="destructive"
+                  onClick={handleConfirmedBulkDeletion}
+                  disabled={isDeletingMultiple}
+                >
+                  {isDeletingMultiple ? 'Deleting...' : 'Delete'}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
+        
+        <Card className="rounded-xl">
+          <CardHeader className="px-6 py-4 border-b">
+            <div className="flex justify-between items-center">
+              <div>
+                <CardTitle>All Blueprints</CardTitle>
+                <CardDescription>
+                  Your saved and generated blueprints
+                </CardDescription>
               </div>
-            ) : (
-              <Button 
-                variant="outline" 
-                onClick={() => setSelectionMode(true)}
-              >
-                Select
-              </Button>
-            )}
-          </div>
-        </CardHeader>
-        <CardContent className="p-6">
-          {loading ? (
-            <div className="space-y-4">
-              {[1, 2, 3].map((i) => (
-                <Skeleton key={i} className="h-24 w-full" />
-              ))}
-            </div>
-          ) : error ? (
-            <div className="text-center py-8">
-              <p className="text-red-500">{error}</p>
-              <button 
-                onClick={() => window.location.reload()}
-                className="mt-4 px-4 py-2 bg-primary text-primary-foreground rounded"
-              >
-                Retry
-              </button>
-            </div>
-          ) : noBlueprints ? (
-            <div className="flex flex-col items-center justify-center p-12 text-center">
-              <h3 className="text-xl font-semibold mb-2">No Blueprints Found</h3>
-              <p className="text-muted-foreground mb-6">
-                You don&apos;t have any blueprints yet. Get started by creating your first blueprint.
-              </p>
-              {process.env.NODE_ENV === 'development' && (
-                <div className="mt-4 flex flex-col gap-2">
+              {selectionMode ? (
+                <div className="flex gap-2">
                   <Button 
-                    variant="outline" 
-                    onClick={createSampleBlueprint} 
-                    disabled={isCreating}
-                    className="mb-2"
+                    variant="destructive" 
+                    onClick={handleBulkDeleteClick}
+                    disabled={selectedBlueprints.length === 0 || isDeletingMultiple}
                   >
-                    {isCreating ? 'Creating...' : 'Create Sample Blueprint (Debug)'}
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete {selectedBlueprints.length > 0 ? `(${selectedBlueprints.length})` : ''}
                   </Button>
                   <Button 
                     variant="outline" 
-                    onClick={createTemporaryBlueprint} 
-                    disabled={isCreating}
+                    onClick={handleCancelSelection}
+                    disabled={isDeletingMultiple}
                   >
-                    {isCreating ? 'Creating...' : 'Create Temporary Blueprint (Debug)'}
+                    Cancel
                   </Button>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    This will create a sample blueprint directly in the database for testing.
-                  </p>
                 </div>
+              ) : (
+                <Button 
+                  variant="outline" 
+                  onClick={() => setSelectionMode(true)}
+                >
+                  Select
+                </Button>
               )}
             </div>
-          ) : (
-            <BlueprintsSection 
-              blueprints={formattedBlueprints} 
-              onBlueprintClick={handleBlueprintClick}
-              onSelectionChange={handleSelectionChange}
-              selectionEnabled={selectionMode} 
-            />
-          )}
-        </CardContent>
-      </Card>
-    </div>
+          </CardHeader>
+          <CardContent className="p-6">
+            {loading ? (
+              <div className="space-y-4">
+                {[1, 2, 3].map((i) => (
+                  <Skeleton key={i} className="h-24 w-full" />
+                ))}
+              </div>
+            ) : error ? (
+              <div className="text-center py-8">
+                <p className="text-red-500">{error}</p>
+                <button 
+                  onClick={() => window.location.reload()}
+                  className="mt-4 px-4 py-2 bg-primary text-primary-foreground rounded"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : noBlueprints ? (
+              <div className="flex flex-col items-center justify-center p-12 text-center">
+                <h3 className="text-xl font-semibold mb-2">No Blueprints Found</h3>
+                <p className="text-muted-foreground mb-6">
+                  You don&apos;t have any blueprints yet. Get started by creating your first blueprint.
+                </p>
+                {process.env.NODE_ENV === 'development' && (
+                  <div className="mt-4 flex flex-col gap-2">
+                    <Button 
+                      variant="outline" 
+                      onClick={createSampleBlueprint} 
+                      disabled={isCreating}
+                      className="mb-2"
+                    >
+                      {isCreating ? 'Creating...' : 'Create Sample Blueprint (Debug)'}
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      onClick={createTemporaryBlueprint} 
+                      disabled={isCreating}
+                    >
+                      {isCreating ? 'Creating...' : 'Create Temporary Blueprint (Debug)'}
+                    </Button>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      This will create a sample blueprint directly in the database for testing.
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <BlueprintsSection 
+                blueprints={formattedBlueprints} 
+                onBlueprintClick={handleBlueprintClick}
+                onSelectionChange={handleSelectionChange}
+                selectionEnabled={selectionMode} 
+              />
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </>
   )
 } 
