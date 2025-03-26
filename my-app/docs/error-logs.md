@@ -29,6 +29,15 @@ This document tracks issues, bugs, and their resolutions for the AI LMS system.
 | BUG-202 | Debug data not persistent                   | Debug results were lost between interactions             | ✅ Fixed | Added persistent state for debug data                              | 2023-10-15 |
 | BUG-203 | Error handling for malformed JSON           | JSON parsing errors weren't handled                      | ✅ Fixed | Added try/catch for JSON parsing in debug window                   | 2023-10-15 |
 
+## Dependency and Build Issues
+
+| ID      | Issue                             | Description                                                           | Status   | Resolution                                                            | Date       |
+| ------- | --------------------------------- | --------------------------------------------------------------------- | -------- | --------------------------------------------------------------------- | ---------- |
+| BUG-401 | Next.js version mismatch          | Installed Next.js 14.1.3 did not match package.json (15.2.1-canary.3) | ✅ Fixed | Updated Next.js to match package.json version                         | 2023-03-26 |
+| BUG-402 | Tailwind CSS PostCSS plugin error | Tailwind CSS v4 requires separate PostCSS plugin                      | ✅ Fixed | Installed @tailwindcss/postcss and updated PostCSS config             | 2023-03-26 |
+| BUG-403 | Vercel deployment failing         | NPM dependency resolution conflicts on Vercel                         | ✅ Fixed | Updated vercel.json to use pnpm with --no-frozen-lockfile flag        | 2023-03-26 |
+| BUG-404 | Lockfile inconsistencies          | pnpm-lock.yaml out of sync with package.json                          | ✅ Fixed | Added pnpm-workspace.yaml and configured for proper workspace support | 2023-03-26 |
+
 ## Planned Fixes
 
 | ID      | Issue                               | Description                                     | Priority | Planned Date |
