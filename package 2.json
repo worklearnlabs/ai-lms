@@ -1,0 +1,13 @@
+{
+  "name": "ai-lms-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "my-app"
+  ],
+  "scripts": {
+    "dev": "cd my-app && npm run dev",
+    "build": "cd my-app && npm run build",
+    "start": "cd my-app && npm start"
+  }
+} 

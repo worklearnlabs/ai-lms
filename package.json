@@ -9,5 +9,8 @@
     "dev": "cd my-app && npm run dev",
     "build": "cd my-app && npm run build",
     "start": "cd my-app && npm start"
+  },
+  "dependencies": {
+    "@tailwindcss/postcss": "^4.0.17"
   }
-} 
+}
